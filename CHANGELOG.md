@@ -8,9 +8,11 @@
 - Functional acceptance matrix covering monitor combinations, Stage Manager,
   learning protections, persistence, recovery, identity matching and privacy.
 - P0 performance budgets for idle CPU, memory, wakeups, event storms and soak tests.
+- Explicit Stage Manager OFF / ON / runtime-switching requirements; 42 acceptance scenarios.
+- Native event-driven technical design and interaction specification, pending design approval.
 
 ### Status
 
-- Requirements approval pending.
+- Requirements approved; technical design approval pending.
 - No application implementation, executable tests, installer or release yet.
 - VERSION identifies the intended first version, not an available release.
