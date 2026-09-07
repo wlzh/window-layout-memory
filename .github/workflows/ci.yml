@@ -13,5 +13,7 @@ jobs:
         run: zsh scripts/build-app.sh
       - name: Core coverage (not whole application)
         run: zsh scripts/coverage.sh
+      - name: Engine coverage (injected adapters only)
+        run: zsh scripts/coverage-engine.sh
       - name: Hardware scope
         run: echo 'CI does not validate Accessibility permission, Stage Manager, physical monitors, login or idle resource budgets.'

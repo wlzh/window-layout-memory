@@ -4,11 +4,13 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 面向 macOS 的窗口布局记忆应用。目标是保留用户在单屏、双屏、多屏环境下分别调整好的窗口大小、位置与显示器归属，在显示器切换和重新登录后恢复，不让系统临时重排覆盖用户偏好。
 
-**v0.1.0-preview.1：开发预览，不是稳定版。** 已有可运行应用、构建与核心测试；尚未完整满足PRD，台前调度开/关、实际插拔与登录恢复、代表性性能均未完成验收。
+**v0.1.0-preview.2：开发预览，不是稳定版。** 已有可运行应用、构建、核心与协调器集成测试；尚未完整满足PRD，台前调度开/关、实际插拔与登录恢复、代表性性能均未完成验收。
 
 当前实现：前台普通窗口核对、候选保存、按显示器组合隔离基准、锁定、历史回退、保守匹配、可选恢复及一次核验、暂停、排除、私人备份和登录启动设置。自动移动默认关闭。
 
-**自动核对仅产生会话内候选，需点击保存才持久化。** 它还不是完全无感自动学习成品。后台窗口需用户激活，不展开最小化窗口或强制切换台前调度组。角色规则编辑器、显示器别名映射、启动其它应用、恢复重试等尚未完成。
+**支持鼠标拖动/缩放后的自动持久记忆。** 新安装默认开启；从旧版升级不擅自改变偏好，请从菜单启用。要求前台窗口标题栏/边缘上的鼠标证据、释放后稳定且不在切屏/恢复保护期内。无法确认的变化只保留候选，包括部分键盘布局操作，仍需点击保存。后台窗口需用户激活，不展开最小化窗口或强制切换台前调度组。
+
+支持布局重命名、手动显示器映射复制、取消待恢复；临时AX错误仅在窗口完全未移动时重试一次。完整角色规则编辑器、启动其它应用尚未完成。
 
 ## Build and use
 
@@ -24,9 +26,9 @@ zsh scripts/package-release.sh
 
 当前产物arm64、ad-hoc签名、未公证。本机验证macOS15.6，部署目标macOS13不代表低版本或Intel已验证。
 
-71核心用例 / 1,634断言通过；LayoutCore行覆盖98.41%，**不包括Engine、AX、UI**，不得解读为全项目覆盖率。10分钟代表性负载及8小时驻留未通过前，不宣称CPU/内存预算达标。
+测试包含纯核心回归与注入假窗口服务的Engine集成回归；覆盖率、用例数及实机状态见[测试报告](docs/TESTING.md)。核心行覆盖**不包括Engine、AX、UI**，不得解读为全项目覆盖率。10分钟代表性负载及8小时驻留未通过前，不宣称CPU/内存预算达标。
 
-详见 [使用指南](docs/USER_GUIDE.md)、[测试报告](docs/TESTING.md)、[兼容性](docs/COMPATIBILITY.md)、[发行说明](docs/releases/v0.1.0-preview.1.md)。
+详见 [使用指南](docs/USER_GUIDE.md)、[测试报告](docs/TESTING.md)、[兼容性](docs/COMPATIBILITY.md)、[发行说明](docs/releases/v0.1.0-preview.2.md)。
 
 ## Planned scope
 
@@ -53,6 +55,6 @@ Do not commit real window titles, document paths, display serial numbers, screen
 
 ## Version and license
 
-Current development preview: **0.1.0-preview.1**, build 1. See [CHANGELOG](CHANGELOG.md).
+Current development preview: **0.1.0-preview.2**, build 2. See [CHANGELOG](CHANGELOG.md).
 
 Copyright (c) 2026 wlzh. Licensed under the [MIT License](LICENSE).

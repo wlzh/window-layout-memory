@@ -21,6 +21,10 @@ public struct Rect: Codable, Equatable {
         Rect(min(max(x,b.x-width+min(width,80)),b.x+b.width-min(width,80)),
              min(max(y,b.y),b.y+b.height-min(height,32)),width,height)
     }
+    public func isDragHandle(x px: Double, y py: Double) -> Bool {
+        guard valid,px.isFinite,py.isFinite,px >= x-12,px <= x+width+12,py >= y-12,py <= y+height+12 else { return false }
+        return py <= y+40 || abs(px-x) <= 12 || abs(px-x-width) <= 12 || abs(py-y-height) <= 12
+    }
 }
 
 public struct Display: Codable, Equatable {
@@ -89,8 +93,88 @@ public struct Profile: Codable, Equatable, Identifiable {
 }
 public struct Preferences: Codable, Equatable {
     public var autoObserve = true, autoRestore = false
+    public var autoRemember = true
     public var excludedBundles: [String] = []
     public init() {}
+    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles }
+    public init(from decoder: Decoder) throws {
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        autoObserve=try c.decodeIfPresent(Bool.self,forKey:.autoObserve) ?? true
+        autoRestore=try c.decodeIfPresent(Bool.self,forKey:.autoRestore) ?? false
+        autoRemember=try c.decodeIfPresent(Bool.self,forKey:.autoRemember) ?? false
+        excludedBundles=try c.decodeIfPresent([String].self,forKey:.excludedBundles) ?? []
+    }
+}
+
+// Only observed pointer-driven geometry changes may automatically replace a baseline.
+// Activation and display/Stage Manager animations alone are not learning evidence.
+public struct LearningGate {
+    private var gestures: [String:TimeInterval] = [:]
+    public init() {}
+    public var count: Int { gestures.count }
+    public mutating func reset() { gestures.removeAll(keepingCapacity:true) }
+    public mutating func discard(_ token: String) { gestures[token]=nil }
+    public mutating func note(_ token: String, now: TimeInterval, pointerDown: Bool, eligible: Bool) {
+        gestures=gestures.filter { now >= $0.value && now-$0.value <= 30 }
+        guard eligible,pointerDown,now.isFinite,gestures[token] != nil || gestures.count < 500 else { return }
+        gestures[token]=now
+    }
+    public func permits(_ token: String, now: TimeInterval, pointerDown: Bool, stable: Bool, eligible: Bool) -> Bool {
+        guard let started=gestures[token] else { return false }
+        return eligible && stable && !pointerDown && now.isFinite && now >= started && now-started <= 30
+    }
+}
+
+public enum CaptureMerge {
+    public static func updated(_ existing: Profile?, topology: Topology, windows: [SavedWindow]) throws -> Profile? {
+        guard topology.valid else { throw CoreError.invalid("Invalid topology") }
+        if let existing {
+            guard existing.topology.key == topology.key else { throw CoreError.invalid("Wrong topology") }
+            guard !existing.locked else { throw CoreError.invalid("Locked profile") }
+        }
+        guard !windows.isEmpty else { return nil }
+        var p=existing ?? Profile(name:"\(topology.displays.count)屏布局",topology:topology)
+        for window in windows {
+            if let i=p.windows.firstIndex(where: { $0.id == window.id }) {
+                let old=p.windows[i]
+                if old.identity == window.identity && old.displayID == window.displayID &&
+                    old.sourceVisible == window.sourceVisible && old.frame.close(to:window.frame,tolerance:0.5) { continue }
+                p.windows[i]=window
+            } else { p.windows.append(window) }
+        }
+        guard p.windows != existing?.windows else { return nil }
+        if let existing { p.revision=existing.revision+1 }
+        p.updatedAt=Date()
+        var check=Database(); check.profiles=[p]; try check.validate()
+        return p
+    }
+}
+
+public enum ProfileMapping {
+    public static func copy(_ source: Profile, to topology: Topology, mapping: [String:String]) throws -> Profile {
+        guard source.topology.valid,topology.valid,
+              Set(mapping.keys) == Set(source.topology.displays.map(\.id)),
+              Set(mapping.values).count == mapping.count,
+              mapping.values.allSatisfy({ id in topology.displays.contains { $0.id == id } }) else {
+            throw CoreError.invalid("Every source display requires a distinct current display")
+        }
+        var copy=Profile(name:source.name,topology:topology)
+        copy.windows=try source.windows.map { old in
+            guard let id=mapping[old.displayID],let display=topology.displays.first(where: { $0.id == id }),
+                  old.frame.valid,old.sourceVisible.valid else { throw CoreError.invalid("Invalid mapped window") }
+            return SavedWindow(id:old.id,identity:old.identity,displayID:id,
+                frame:old.frame.normalized(in:old.sourceVisible).expanded(in:display.visible).reachable(in:display.visible),
+                sourceVisible:display.visible)
+        }
+        var db=Database();db.profiles=[copy];try db.validate()
+        return copy
+    }
+}
+
+public enum RestoreRetry {
+    public static func permits(remaining: Int, transient: Bool, original: Rect, actual: Rect?, pointerDown: Bool) -> Bool {
+        remaining > 0 && transient && !pointerDown && actual?.close(to:original,tolerance:0.5) == true
+    }
 }
 public struct Database: Codable, Equatable {
     public var schemaVersion = 1
