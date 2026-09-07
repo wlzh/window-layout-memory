@@ -1,6 +1,6 @@
 # Contributing
 
-This project is in technical design review. Requirements are confirmed; discuss scope changes before implementation.
+This project is a development preview. Requirements and technical design are confirmed; discuss scope changes before implementation.
 
 ## Quality bar
 
@@ -12,4 +12,4 @@ This project is in technical design review. Requirements are confirmed; discuss 
 - Do not add private macOS APIs or security-setting workarounds without explicit design review.
 - Submit focused pull requests with verification results and remaining limitations.
 
-Build and test commands will be documented after implementation. None exist yet.
+Run `zsh scripts/test-all.sh` and `zsh scripts/coverage.sh`. See docs/TESTING.md for the actual denominator and unexecuted hardware gates.

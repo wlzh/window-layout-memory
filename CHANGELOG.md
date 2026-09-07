@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - target 0.1.0
+## [0.1.0-preview.1] - 2026-09-07
 
 ### Added
 
@@ -9,10 +9,13 @@
   learning protections, persistence, recovery, identity matching and privacy.
 - P0 performance budgets for idle CPU, memory, wakeups, event storms and soak tests.
 - Explicit Stage Manager OFF / ON / runtime-switching requirements; 42 acceptance scenarios.
-- Native event-driven technical design and interaction specification, pending design approval.
+- Approved native event-driven technical design and interaction specification.
+- Native menu-bar preview, AX event adapter, per-topology profiles, candidate capture, restore verification, history and backup.
+- 71 passing core cases / 1,634 assertions; measured LayoutCore line coverage 98.41% (not whole-app coverage).
+- Build, install, package, coverage and resource measurement scripts; macOS CI.
 
 ### Status
 
-- Requirements approved; technical design approval pending.
-- No application implementation, executable tests, installer or release yet.
-- VERSION identifies the intended first version, not an available release.
+- Requirements and design approved; runnable development preview implemented.
+- Full functional, Stage Manager, monitor-switching, login and performance acceptance incomplete.
+- Candidate observations require explicit save; not fully automatic persistent learning.
