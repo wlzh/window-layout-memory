@@ -15,6 +15,11 @@
 | 版本、plist、git diff | 通过 | 元数据检查，不计功能用例 |
 | ad-hoc签名、安装与启动 | 通过 | 不代表Developer ID公证 |
 | 三屏读取与权限面板 | 通过 | 只读，不等于恢复或插拔测试 |
+| GitHub CI | 通过 | [运行34127463958](https://github.com/wlzh/window-layout-memory/actions/runs/34127463958)，构建/核心测试/覆盖率 |
+| GitHub发行资产回下载 | SHA256与unzip完整性通过 | v0.1.0-preview.1，非公证检查 |
+
+发行归档SHA256：`1ee56b387515a20e10863b473f1977b05c095113aaa9e8b6109074c0e6b5e395`。
+本机安装与构建二进制SHA256均为`0cd9283d16232411ec00f6d221d10794c0ddcfb009ae1e95a0a5f2fb38aa4185`。
 
 Engine、AX服务与UI不在98.41%分母内。不得把核心覆盖率当作全应用覆盖率。
 
