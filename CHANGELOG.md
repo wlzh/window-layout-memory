@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.0-preview.2] - 2026-09-07
+
+### Added
+
+- Persist deliberate foreground mouse drag/resize adjustments after settling; retain candidates when intent is uncertain.
+- Conservative legacy preference migration, locked baseline protection and no-op capture deduplication.
+- Manual display mapping/copy UI, layout renaming and cancellation of pending restores.
+- 103 core cases / 2,814 assertions and 28 injected Engine integration checks, including a 1,000-event burst.
+- Explicit regressions for distinct same-count monitor sets: even the shared built-in screen has separate window layouts in each combination.
+- Dedicated Engine coverage script; hardware and real AX coverage remain separate.
+
+### Fixed
+
+- Baseline revisions no longer rearm automatic restoration and fight later user adjustments.
+- Reuse window notification registrations and preserve runtime identities across partial scans.
+- Cancel queued scans between windows after pause or topology changes; prioritize foreground scans.
+- Retry a transient AX write at most once, only when no geometry changed and the pointer is released.
+- Check permission and pointer state between writes; remove Engine observers on teardown.
+
+### Status
+
+- Build 2, ad-hoc signed, not notarized. Updating a locally signed binary can require renewed Accessibility permission.
+- Stage Manager ON/OFF, physical display cycles, login/wake, real AX writes and long-run performance still require acceptance.
+
 ## [0.1.0-preview.1] - 2026-09-07
 
 ### Added

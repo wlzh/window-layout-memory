@@ -203,6 +203,214 @@ test("stable identifier matches changed title") {
     let l=LiveWindow(token:"1",identity:WindowIdentity(bundle:"a",title:"new",identifier:"stable"),frame:w.frame)
     try expect(Matcher.assign([w],[l]).resolved[w.id]=="1")
 }
+test("legacy preferences migrate without enabling automatic mutations") {
+    let p=try JSONDecoder().decode(Preferences.self,from:Data("{\"autoObserve\":true,\"autoRestore\":false,\"excludedBundles\":[]}".utf8))
+    try expect(!p.autoRemember && !p.autoRestore && p.autoObserve)
+}
+test("empty preferences decode conservatively") {
+    let p=try JSONDecoder().decode(Preferences.self,from:Data("{}".utf8))
+    try expect(!p.autoRemember && !p.autoRestore && p.autoObserve)
+}
+test("automatic remember preference roundtrip") {
+    var p=Preferences();p.autoRemember=true;p.autoRestore=true
+    try expect(try JSONDecoder().decode(Preferences.self,from:JSONEncoder().encode(p)) == p)
+}
+test("malformed automatic remember preference rejected") {
+    try rejects { _=try JSONDecoder().decode(Preferences.self,from:Data("{\"autoRemember\":\"yes\"}".utf8)) }
+}
+test("activation and system geometry changes never grant learning") {
+    var gate=LearningGate()
+    for i in 0..<1000 {
+        gate.note("w",now:Double(i),pointerDown:false,eligible:true)
+        try expect(!gate.permits("w",now:Double(i),pointerDown:false,stable:true,eligible:true))
+    }
+    try expect(gate.count == 0)
+}
+test("learning requires release stability and eligibility") {
+    for down in [false,true] { for stable in [false,true] { for eligible in [false,true] {
+        var gate=LearningGate(); gate.note("w",now:10,pointerDown:true,eligible:true)
+        try expect(gate.permits("w",now:11,pointerDown:down,stable:stable,eligible:eligible) == (!down && stable && eligible))
+    } } }
+}
+test("background or transition gestures do not grant learning") {
+    var gate=LearningGate();gate.note("w",now:10,pointerDown:true,eligible:false)
+    try expect(!gate.permits("w",now:11,pointerDown:false,stable:true,eligible:true))
+}
+test("gesture lifetime bounded and monotonic") {
+    var gate=LearningGate();gate.note("w",now:10,pointerDown:true,eligible:true)
+    for now in [9.0,40.001,Double.infinity,Double.nan] {
+        try expect(!gate.permits("w",now:now,pointerDown:false,stable:true,eligible:true))
+    }
+    try expect(gate.permits("w",now:40,pointerDown:false,stable:true,eligible:true))
+}
+test("invalid gesture time ignored") {
+    var gate=LearningGate();gate.note("w",now:.nan,pointerDown:true,eligible:true)
+    try expect(gate.count == 0)
+}
+test("new geometry refreshes an active drag deadline") {
+    var gate=LearningGate();gate.note("w",now:0,pointerDown:true,eligible:true)
+    gate.note("w",now:29,pointerDown:true,eligible:true)
+    try expect(gate.permits("w",now:31,pointerDown:false,stable:true,eligible:true))
+}
+test("generation reset prevents learning across monitor changes") {
+    var gate=LearningGate();gate.note("w",now:0,pointerDown:true,eligible:true);gate.reset()
+    try expect(gate.count == 0)
+    try expect(!gate.permits("w",now:1,pointerDown:false,stable:true,eligible:true))
+}
+test("restoring window discards only its gesture") {
+    var gate=LearningGate()
+    for token in ["a","b"] { gate.note(token,now:1,pointerDown:true,eligible:true) }
+    gate.discard("a");try expect(gate.count == 1)
+    try expect(gate.permits("b",now:2,pointerDown:false,stable:true,eligible:true))
+}
+test("gesture flood remains bounded and expires") {
+    var gate=LearningGate()
+    for i in 0..<2000 { gate.note("\(i)",now:1,pointerDown:true,eligible:true) }
+    try expect(gate.count == 500)
+    gate.note("new",now:32,pointerDown:true,eligible:true);try expect(gate.count == 1)
+}
+test("empty capture does not create profile") { try expect(try CaptureMerge.updated(nil,topology:one,windows:[]) == nil) }
+test("first capture establishes profile") {
+    let w=window(),p=try CaptureMerge.updated(nil,topology:one,windows:[w])!
+    try expect(p.windows == [w] && p.revision == 1 && p.topology == one)
+}
+test("unchanged capture makes no revision history or disk work") {
+    let p=profile();try expect(try CaptureMerge.updated(p,topology:one,windows:p.windows) == nil)
+    var w=p.windows[0];w.frame.x+=0.4
+    try expect(try CaptureMerge.updated(p,topology:one,windows:[w]) == nil)
+}
+test("changed capture updates same role preserving unseen windows") {
+    var p=profile();p.windows.append(window(WindowIdentity(bundle:"other")))
+    var w=p.windows[0];w.frame.x+=30
+    let next=try CaptureMerge.updated(p,topology:one,windows:[w])!
+    try expect(next.id == p.id && next.revision == p.revision+1)
+    try expect(next.windows == [w,p.windows[1]])
+}
+test("capture updates identity and visible region without adding role") {
+    let p=profile();var w=p.windows[0];w.identity.title="Changed";w.sourceVisible.y+=20
+    let next=try CaptureMerge.updated(p,topology:one,windows:[w])!
+    try expect(next.windows == [w])
+}
+test("locked profiles reject even automatic no-op capture") {
+    var p=profile();p.locked=true
+    try rejects { _=try CaptureMerge.updated(p,topology:one,windows:p.windows) }
+}
+test("capture rejects stale topology and invalid geometry") {
+    try rejects { _=try CaptureMerge.updated(profile(),topology:two,windows:[window()]) }
+    try rejects { _=try CaptureMerge.updated(nil,topology:Topology([]),windows:[]) }
+    var w=window();w.frame.width=0
+    try rejects { _=try CaptureMerge.updated(nil,topology:one,windows:[w]) }
+}
+test("one two three monitor capture cycle preserves independent baselines") {
+    var db=Database()
+    for cycle in 0..<10 { for topology in [one,two,three,two,one] {
+        let existing=db.profiles.first { $0.topology.key == topology.key }
+        var w=existing?.windows.first ?? window();w.frame.x=Double(cycle*10+topology.displays.count)
+        if let p=try CaptureMerge.updated(existing,topology:topology,windows:[w]) {
+            try db.replace(p,expectedRevision:existing?.revision)
+        }
+        try db.validate()
+        for p in db.profiles where p.topology.key != topology.key {
+            try expect(Int(p.windows[0].frame.x) % 10 == p.topology.displays.count)
+        }
+    } }
+    try expect(db.profiles.count == 3)
+}
+test("new installations enable deliberate-drag memory without automatic moves") {
+    try expect(Preferences().autoRemember && !Preferences().autoRestore)
+}
+test("explicit display mapping adapts geometry and preserves source") {
+    let p=profile();let original=p
+    let mapped=try ProfileMapping.copy(p,to:two,mapping:["a":"b"])
+    try expect(mapped.windows[0].displayID == "b")
+    try expect(mapped.windows[0].frame == p.windows[0].frame.normalized(in:a.visible).expanded(in:b.visible))
+    try expect(mapped.id != p.id && p == original && !mapped.locked)
+}
+test("mapping rejects missing duplicate and unknown display assignments") {
+    for mapping in [[String:String](),["a":"unknown"],["a":"b","unknown":"a"]] {
+        try rejects { _=try ProfileMapping.copy(profile(),to:two,mapping:mapping) }
+    }
+    try rejects { _=try ProfileMapping.copy(profile(two),to:two,mapping:["a":"a","b":"a"]) }
+}
+test("mapping rejects invalid geometry") {
+    var p=profile();p.windows[0].sourceVisible.width=0
+    try rejects { _=try ProfileMapping.copy(p,to:one,mapping:["a":"a"]) }
+}
+test("mapping never silently assigns a missing source window display") {
+    var p=profile();p.windows[0].displayID="missing"
+    try rejects { _=try ProfileMapping.copy(p,to:one,mapping:["a":"a"]) }
+}
+test("retry requires budget transient error unchanged geometry and no pointer") {
+    let frame=Rect(10,10,200,100)
+    for remaining in [0,1] { for transient in [false,true] { for pointer in [false,true] {
+        try expect(RestoreRetry.permits(remaining:remaining,transient:transient,original:frame,actual:frame,pointerDown:pointer)
+            == (remaining > 0 && transient && !pointer))
+    } } }
+    try expect(!RestoreRetry.permits(remaining:1,transient:true,original:frame,actual:nil,pointerDown:false))
+    try expect(!RestoreRetry.permits(remaining:1,transient:true,original:frame,actual:Rect(20,10,200,100),pointerDown:false))
+}
+test("pointer evidence requires titlebar or resize edge not sidebar or content") {
+    let r=Rect(100,100,500,400)
+    for point in [(120.0,110.0),(100,300),(600,300),(350,500)] { try expect(r.isDragHandle(x:point.0,y:point.1)) }
+    for point in [(10.0,300.0),(350,300),(800,800),(Double.nan,100)] { try expect(!r.isDragHandle(x:point.0,y:point.1)) }
+}
+test("same built-in screen has independent windows in different dual-screen combinations") {
+    var other=b;other.id="external-other";other.name=b.name
+    let setups=[Topology([a,b]),Topology([a,other])]
+    var db=Database()
+    for (index,setup) in setups.enumerated() {
+        let w=window(frame:Rect(Double(100+index*300),50,Double(400+index*100),300))
+        let p=Profile(name:"Same count",topology:setup,windows:[w])
+        try db.replace(p,expectedRevision:nil)
+    }
+    try expect(db.profiles.count == 2)
+    for (index,setup) in setups.enumerated() {
+        let p=db.profiles.first { $0.topology.key == setup.key }!
+        try expect(p.windows[0].displayID == "a")
+        try expect(p.windows[0].target(in:setup) == Rect(Double(100+index*300),50,Double(400+index*100),300))
+    }
+}
+test("three-screen configurations with one changed external screen never share profiles") {
+    var other=c;other.id="different-portrait";other.name=c.name
+    let setups=[Topology([a,b,c]),Topology([a,b,other])]
+    var db=Database()
+    for (index,setup) in setups.enumerated() {
+        let windows=index == 0 ? [window(WindowIdentity(bundle:"work.editor"))] : [window(WindowIdentity(bundle:"personal.browser"))]
+        try db.replace(Profile(name:"Three screens",topology:setup,windows:windows),expectedRevision:nil)
+    }
+    try expect(db.profiles[0].windows[0].identity.bundle == "work.editor")
+    try expect(db.profiles[1].windows[0].identity.bundle == "personal.browser")
+    try expect(db.profiles.allSatisfy { $0.windows[0].displayID == "a" })
+}
+test("updating shared built-in screen in one combination never mutates another") {
+    var other=b;other.id="b2"
+    let work=two,home=Topology([a,other])
+    var db=Database()
+    for setup in [work,home] { try db.replace(profile(setup),expectedRevision:nil) }
+    let homeBefore=db.profiles[1],original=db.profiles[0]
+    var moved=original.windows[0];moved.frame=Rect(400,200,300,500)
+    let updated=try CaptureMerge.updated(original,topology:work,windows:[moved])!
+    try db.replace(updated,expectedRevision:original.revision)
+    try expect(db.profiles[1] == homeBefore)
+    try expect(db.history.count == 1 && db.history[0].id == original.id)
+}
+test("combination-specific internal-screen layouts survive disk restart") {
+    let dir=FileManager.default.temporaryDirectory.appendingPathComponent("wlm-combinations-\(UUID())")
+    defer { try? FileManager.default.removeItem(at:dir) }
+    var external=b;external.id="other-external"
+    let setups=[one,two,three,Topology([a,external]),Topology([a,external,c])]
+    var db=Database()
+    for (index,setup) in setups.enumerated() {
+        try db.replace(Profile(name:"Configuration",topology:setup,windows:[window(frame:Rect(Double(index*100),40,400,300))]),expectedRevision:nil)
+    }
+    try LayoutStore(directory:dir).save(db)
+    let loaded=try LayoutStore(directory:dir).load()
+    for (index,setup) in setups.enumerated() {
+        let p=loaded.profiles.first { $0.topology.key == setup.key }!
+        try expect(p.windows[0].target(in:setup)?.x == Double(index*100))
+    }
+    try expect(loaded.profiles.count == 5)
+}
 print("CORE_TESTS passed=\(passed) failed=\(failed) assertions=\(assertions)")
 print("Coverage percentage: NOT MEASURED. AX, UI, Stage Manager, hardware and performance tests: NOT RUN.")
 exit(failed==0 ? 0:1)
