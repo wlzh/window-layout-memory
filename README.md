@@ -39,7 +39,7 @@ zsh scripts/package-release.sh
 - Restore existing/reopened ordinary windows after display changes, wake and login.
 - Conservative matching of multiple windows from the same application, with visible ambiguity and manual correction.
 - Local-only layout storage, export, backup, pause, exclusions and undo.
-- Low overhead is a release gate: near-zero idle CPU, bounded memory and no periodic full-window scans. Budgets and measurement criteria are in the PRD; no performance results exist yet.
+- Low overhead is a release gate: near-zero idle CPU, bounded memory and no periodic full-window scans. Budgets are in the PRD; measured baselines and remaining acceptance gaps are in the testing report.
 
 Spaces, native full-screen windows and Stage Manager group restoration are out of scope. Recreating arbitrary application documents, tabs or unsaved content is not promised.
 
