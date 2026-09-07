@@ -1,0 +1,17 @@
+name: macOS build and core regression
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        run: zsh scripts/test-all.sh
+      - name: Build preview bundle
+        run: zsh scripts/build-app.sh
+      - name: Core coverage (not whole application)
+        run: zsh scripts/coverage.sh
+      - name: Hardware scope
+        run: echo 'CI does not validate Accessibility permission, Stage Manager, physical monitors, login or idle resource budgets.'
