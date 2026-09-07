@@ -1,6 +1,6 @@
 # Contributing
 
-This project is in requirements review. Discuss scope changes before implementation.
+This project is in technical design review. Requirements are confirmed; discuss scope changes before implementation.
 
 ## Quality bar
 
