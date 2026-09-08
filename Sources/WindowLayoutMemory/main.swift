@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let observe=add(menu,"自动核对窗口变化",#selector(toggleObserve)); observe.state=engine.database.preferences.autoObserve ? .on:.off
         let remember=add(menu,"自动保存手动拖动后的布局",#selector(toggleRemember)); remember.state=engine.database.preferences.autoRemember ? .on:.off
         let auto=add(menu,"激活/登录/切屏后自动恢复",#selector(toggleAuto)); auto.state=engine.database.preferences.autoRestore ? .on:.off
+        let fill=add(menu,"台前调度：横屏自动铺满（拖左边缘调整留白）",#selector(toggleStageFill));fill.state=engine.database.preferences.stageFill ? .on:.off
         let login=add(menu,"登录时启动",#selector(toggleLogin)); login.state=SMAppService.mainApp.status == .enabled ? .on:.off
         add(menu,engine.guardState.paused ? "继续自动操作":"暂停自动操作",#selector(pause))
         add(menu,"取消待恢复并暂停",#selector(cancelRestores))
@@ -122,6 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func pause() { engine.togglePause() }
     @objc func refresh() { engine.displayChanged() }
     @objc func toggleObserve() { engine.setPreferences { $0.autoObserve.toggle() } }
+    @objc func toggleStageFill() {
+        if !engine.database.preferences.stageFill && !confirm("仅台前调度开启时，自动将横屏前台窗口铺满可用工作区。左侧默认留白200 pt；拖左边缘后记住新留白。原布局基准不变，竖屏不处理。关闭后停止铺满，不立即移动窗口。") { return }
+        engine.setPreferences { $0.stageFill.toggle() }
+    }
     @objc func toggleRemember() {
         if !engine.database.preferences.autoRemember && !confirm("自动保存前台窗口的鼠标拖动/缩放结果，包含新显示器组合。系统自动挤压或无鼠标证据的变化不会覆盖基准。键盘调整仍需手动保存。") { return }
         engine.setPreferences { $0.autoRemember.toggle() }
@@ -232,6 +237,7 @@ if CommandLine.arguments.contains("--self-test-preview") {
 } else if CommandLine.arguments.contains("--diagnose") {
     let topology=displaysNow()
     let report:[String:Any] = ["version":AppVersion.marketing,"release":AppVersion.label,"accessibilityTrusted":AXIsProcessTrusted(),
+                              "stageManagerEnabled":EngineEnvironment().stageManagerEnabled() as Any? ?? NSNull(),
                               "displayCount":topology.displays.count,"topologyValid":topology.valid,
                               "displays":topology.displays.map { ["name":$0.name,"width":$0.frame.width,"height":$0.frame.height,"rotation":$0.rotation] as [String:Any] },
                               "os":ProcessInfo.processInfo.operatingSystemVersionString,

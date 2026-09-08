@@ -171,6 +171,61 @@ func runEngineChecks() -> Int32 {
         restorer.cancelRestores();pump(0.3)
         check("cancellation during settings IO cannot be resumed by stale completion",restorer.guardState.paused)
     } catch { failed+=1;print("FAIL ENGINE setup: \(error)") }
+    do {
+        topology=Topology([display]);trusted=true;pointer=false
+        var enabled: Bool?=true
+        var stageEnv=env;stageEnv.stageManagerEnabled={ enabled };stageEnv.stageDisplay={ $0 }
+        let stageStore=LayoutStore(directory:root.appendingPathComponent("stage"))
+        let window=SavedWindow(identity:service.record.identity,displayID:display.id,frame:Rect(30,40,500,300),sourceVisible:display.visible)
+        var db=Database();db.profiles=[Profile(name:"Original",topology:topology,windows:[window])]
+        db.preferences.stageFill=true;db.preferences.autoRestore=true
+        try stageStore.save(db)
+        let fake=FixtureService(),stage=Engine(service:fake,store:stageStore,environment:stageEnv)
+        awaitCondition { fake.moves == 1 }
+        check("stage fill takes priority over saved baseline",fake.record.frame == Rect(200,0,1000,900))
+        check("stage fill never creates ordinary candidates",stage.candidates.isEmpty)
+        check("stage fill preserves stored baseline",(try? stageStore.load().profiles) == db.profiles)
+        pump(2.2)
+        pointerPoint=CGPoint(x:200,y:300);pointer=true;stage.pointerEvent(down:true)
+        fake.record.frame=Rect(150,0,1050,900);pointerPoint.x=150;pointer=false;stage.pointerEvent(down:false)
+        let insetKey=StageFill.insetKey(topology:topology,display:display)
+        awaitCondition { stage.database.preferences.stageInsets[insetKey] == 150 && !stage.busy }
+        check("left edge resize persists shared per-display inset",stage.database.preferences.stageInsets[insetKey] == 150)
+        check("inset save does not modify baseline or history",stage.database.profiles == db.profiles && stage.database.history.isEmpty)
+        fake.record.frame=Rect(350,40,400,300)
+        fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element)
+        awaitCondition { fake.record.frame == Rect(150,0,1050,900) }
+        check("reactivation reapplies learned inset",fake.record.frame == Rect(150,0,1050,900))
+        pump(2.2)
+        pointerPoint=CGPoint(x:300,y:5);pointer=true;stage.pointerEvent(down:true)
+        fake.record.frame.x=180;pointerPoint.x=330;pointer=false;stage.pointerEvent(down:false)
+        pump(3.5)
+        check("titlebar drag stays free until next activation",fake.record.frame.x == 180)
+        check("free drag does not change inset or baseline",stage.database.preferences.stageInsets[insetKey] == 150 && stage.database.profiles == db.profiles)
+        let count=fake.moves
+        for _ in 0..<1000 { fake.emit() };pump(0.8)
+        check("stage geometry notifications never form a move loop",fake.moves == count)
+        stage.setPreferences { $0.stageFill=false };pump(3.5)
+        check("disabling stage fill does not immediately restore or resize",fake.moves == count && fake.record.frame.x == 180)
+        stage.setPreferences { $0.stageFill=true }
+        awaitCondition { fake.record.frame == Rect(150,0,1050,900) }
+        check("reenabling stage fill uses persisted inset",fake.record.frame == Rect(150,0,1050,900))
+        let activeCount=fake.moves
+        stage.togglePause();fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element);pump(0.8)
+        check("pause blocks stage fill",fake.moves == activeCount)
+        stage.togglePause();enabled=false;pump(3.3)
+        let offCount=fake.moves
+        fake.record.frame.x=210;fake.emit();pump(2)
+        check("system Stage Manager off disables fill",fake.moves == offCount)
+        enabled=nil;fake.record.frame.x=240;fake.emit();pump(2)
+        check("unknown Stage Manager state disables fill",fake.moves == offCount)
+        enabled=true
+        topology=Topology([Display(id:"portrait",name:"Portrait",frame:Rect(0,0,800,1200),primary:true)])
+        stage.displayChanged();pump(3.3)
+        check("portrait display is never stage filled",fake.moves == offCount)
+        check("new combination never borrows inset",stage.database.preferences.stageInsets.count == 1)
+        stage.togglePause()
+    } catch { failed+=1;print("FAIL ENGINE stage setup: \(error)") }
     print("ENGINE_TESTS passed=\(passed) failed=\(failed); injected adapter, not physical AX or Stage Manager validation")
     return failed == 0 ? 0:1
 }

@@ -473,6 +473,72 @@ test("preview rejects invalid observations and sorts independently of enumeratio
     let second=PreviewScene.make(currentTopology:one,observations:[y,x],profile:nil,mode:.current)
     try expect(first.rows.map(\.id) == second.rows.map(\.id) && first.rows.count == 2)
 }
+test("stage fill defaults off and old preferences migrate safely") {
+    let p=try JSONDecoder().decode(Preferences.self,from:Data("{}".utf8))
+    try expect(!p.stageFill && p.stageInsets.isEmpty && !Preferences().stageFill)
+}
+test("stage target reserves 200 points and avoids menu and bottom dock") {
+    let d=Display(id:"a",name:"a",frame:Rect(0,0,1512,982),visible:Rect(0,38,1512,880),primary:true)
+    try expect(StageFill.target(display:d) == Rect(200,38,1312,880))
+    try expect(StageFill.target(display:d,inset:150) == Rect(150,38,1362,880))
+}
+test("stage target supports hidden dock full bottom and negative origin") {
+    let d=Display(id:"b",name:"b",frame:Rect(-1920,-224,1920,1080),visible:Rect(-1920,-200,1920,1056))
+    try expect(StageFill.target(display:d,inset:150) == Rect(-1770,-200,1770,1056))
+}
+test("stage target respects side dock and clamps excessive inset") {
+    let d=Display(id:"a",name:"a",frame:Rect(0,0,1200,800),visible:Rect(80,24,1120,776))
+    try expect(StageFill.target(display:d,inset:0)?.x == 80)
+    try expect(StageFill.target(display:d,inset:5000)?.width == 320)
+}
+test("stage rejects portrait square mirrored and invalid inset") {
+    var d=Display(id:"a",name:"a",frame:Rect(0,0,800,1200))
+    try expect(StageFill.target(display:d) == nil)
+    d.frame=Rect(0,0,800,800);try expect(StageFill.target(display:d) == nil)
+    d.frame=Rect(0,0,1200,800);d.mirrored=true;try expect(StageFill.target(display:d) == nil)
+    d.mirrored=false
+    try expect(StageFill.target(display:d,inset:.nan) == nil && StageFill.target(display:d,inset:-1) == nil)
+}
+test("stage left edge excludes titlebar corners and right edge") {
+    let f=Rect(200,38,1000,800)
+    try expect(StageFill.isLeftEdge(f,x:200,y:300))
+    try expect(!StageFill.isLeftEdge(f,x:200,y:45) && !StageFill.isLeftEdge(f,x:200,y:835))
+    try expect(!StageFill.isLeftEdge(f,x:1200,y:300))
+}
+test("stage learns only a left resize not a translation or vertical resize") {
+    let d=Display(id:"a",name:"a",frame:Rect(0,0,1200,900))
+    let origin=Rect(200,0,1000,900)
+    try expect(StageFill.learnedInset(origin:origin,current:Rect(150,0,1050,900),display:d) == 150)
+    try expect(StageFill.learnedInset(origin:origin,current:Rect(150,0,1000,900),display:d) == nil)
+    try expect(StageFill.learnedInset(origin:origin,current:Rect(150,20,1050,880),display:d) == nil)
+}
+test("stage inset identity includes complete topology and display") {
+    let a=Display(id:"a",name:"a",frame:Rect(0,0,1200,900),primary:true)
+    let b=Display(id:"b",name:"b",frame:Rect(1200,0,1200,900))
+    try expect(StageFill.insetKey(topology:Topology([a]),display:a) != StageFill.insetKey(topology:Topology([a,b]),display:a))
+    try expect(StageFill.insetKey(topology:Topology([b,a]),display:a) == StageFill.insetKey(topology:Topology([a,b]),display:a))
+    try expect(StageFill.insetKey(topology:Topology([a,b]),display:a) != StageFill.insetKey(topology:Topology([a,b]),display:b))
+}
+test("stage preferences survive serialization without changing layouts") {
+    var db=Database();db.preferences.stageFill=true;db.preferences.stageInsets=["key":150]
+    let restored=try JSONDecoder().decode(Database.self,from:JSONEncoder().encode(db))
+    try restored.validate();try expect(restored == db && restored.profiles.isEmpty)
+}
+test("stage rejects malformed inset storage") {
+    var db=Database();db.preferences.stageInsets=["key":-1]
+    do { try db.validate();try expect(false) } catch CoreError.invalid { }
+    db.preferences.stageInsets=["":150]
+    do { try db.validate();try expect(false) } catch CoreError.invalid { }
+}
+test("stage hidden Dock policy handles all edges without removing menu bar") {
+    let d=Display(id:"a",name:"a",frame:Rect(0,0,1200,900),visible:Rect(70,24,1060,806))
+    try expect(StageFill.workArea(d,dockHidden:true,orientation:"bottom").visible == Rect(70,24,1060,876))
+    try expect(StageFill.workArea(d,dockHidden:true,orientation:"left").visible == Rect(0,24,1130,806))
+    try expect(StageFill.workArea(d,dockHidden:true,orientation:"right").visible == Rect(70,24,1130,806))
+    try expect(StageFill.workArea(d,dockHidden:false,orientation:"bottom") == d)
+    try expect(StageFill.workArea(d,dockHidden:nil,orientation:"bottom") == d)
+    try expect(StageFill.workArea(d,dockHidden:true,orientation:"unknown") == d)
+}
 print("CORE_TESTS passed=\(passed) failed=\(failed) assertions=\(assertions)")
 print("Coverage percentage: NOT MEASURED. AX, UI, Stage Manager, hardware and performance tests: NOT RUN.")
 exit(failed==0 ? 0:1)
