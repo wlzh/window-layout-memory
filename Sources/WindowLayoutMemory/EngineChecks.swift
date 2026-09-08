@@ -185,6 +185,14 @@ func runEngineChecks() -> Int32 {
         check("stage fill takes priority over saved baseline",fake.record.frame == Rect(200,0,1000,900))
         check("stage fill never creates ordinary candidates",stage.candidates.isEmpty)
         check("stage fill preserves stored baseline",(try? stageStore.load().profiles) == db.profiles)
+        let firstMoves=fake.moves
+        fake.record.frame=Rect(230,50,700,600)
+        fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element)
+        pump(3.3)
+        check("activation during post-move protection is eventually reapplied",fake.moves == firstMoves+1 && fake.record.frame == Rect(200,0,1000,900))
+        let protectedMoves=fake.moves
+        fake.emit();pump(2.5)
+        check("protected activation retry stops after one successful fill",fake.moves == protectedMoves)
         pump(2.2)
         pointerPoint=CGPoint(x:200,y:300);pointer=true;stage.pointerEvent(down:true)
         fake.record.frame=Rect(150,0,1050,900);pointerPoint.x=150;pointer=false;stage.pointerEvent(down:false)
