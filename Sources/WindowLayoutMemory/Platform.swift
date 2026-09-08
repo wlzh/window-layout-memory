@@ -3,9 +3,9 @@ import ApplicationServices
 import LayoutCore
 
 enum AppVersion {
-    static var marketing: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.2.0" }
-    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "4" }
-    static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.2" }
+    static var marketing: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.3.0" }
+    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "5" }
+    static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.1" }
     static var label: String { "\(marketing)-\(channel) / build \(build)" }
 }
 
@@ -47,6 +47,19 @@ struct EngineEnvironment {
     var now: ()->TimeInterval = { ProcessInfo.processInfo.systemUptime }
     var pointerDown: ()->Bool = { CGEventSource.buttonState(.combinedSessionState,button:.left) }
     var pointerLocation: ()->CGPoint? = { CGEvent(source:nil)?.location }
+    var stageManagerEnabled: ()->Bool? = {
+        // This preference is not a documented Stage Manager API. Unknown values fail closed.
+        CFPreferencesAppSynchronize("com.apple.WindowManager" as CFString)
+        guard let value=CFPreferencesCopyAppValue("GloballyEnabled" as CFString,"com.apple.WindowManager" as CFString),
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return nil }
+        return (value as! NSNumber).boolValue
+    }
+    var stageDisplay: (Display)->Display = { display in
+        CFPreferencesAppSynchronize("com.apple.dock" as CFString)
+        let hidden=CFPreferencesCopyAppValue("autohide" as CFString,"com.apple.dock" as CFString) as? Bool
+        let orientation=CFPreferencesCopyAppValue("orientation" as CFString,"com.apple.dock" as CFString) as? String ?? "bottom"
+        return StageFill.workArea(display,dockHidden:hidden,orientation:orientation)
+    }
     var frontPID: ()->pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
     var applications: ()->[RunningAppSnapshot] = {
         NSWorkspace.shared.runningApplications.compactMap { app in

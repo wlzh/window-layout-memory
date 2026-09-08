@@ -94,15 +94,53 @@ public struct Profile: Codable, Equatable, Identifiable {
 public struct Preferences: Codable, Equatable {
     public var autoObserve = true, autoRestore = false
     public var autoRemember = true
+    public var stageFill = false
+    public var stageInsets: [String:Double] = [:]
     public var excludedBundles: [String] = []
     public init() {}
-    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles }
+    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stageInsets }
     public init(from decoder: Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         autoObserve=try c.decodeIfPresent(Bool.self,forKey:.autoObserve) ?? true
         autoRestore=try c.decodeIfPresent(Bool.self,forKey:.autoRestore) ?? false
         autoRemember=try c.decodeIfPresent(Bool.self,forKey:.autoRemember) ?? false
+        stageFill=try c.decodeIfPresent(Bool.self,forKey:.stageFill) ?? false
+        stageInsets=try c.decodeIfPresent([String:Double].self,forKey:.stageInsets) ?? [:]
         excludedBundles=try c.decodeIfPresent([String].self,forKey:.excludedBundles) ?? []
+    }
+}
+
+public enum StageFill {
+    public static func workArea(_ display: Display, dockHidden: Bool?, orientation: String) -> Display {
+        guard dockHidden == true else { return display }
+        var result=display
+        switch orientation {
+        case "bottom": result.visible.height=display.frame.y+display.frame.height-display.visible.y
+        case "left": result.visible.width+=display.visible.x-display.frame.x;result.visible.x=display.frame.x
+        case "right": result.visible.width=display.frame.x+display.frame.width-display.visible.x
+        default: break
+        }
+        return result
+    }
+    public static func insetKey(topology: Topology, display: Display) -> String {
+        String(data:try! JSONEncoder().encode([topology.key,display.id]),encoding:.utf8)!
+    }
+    public static func target(display: Display, inset: Double = 200) -> Rect? {
+        guard display.frame.valid,display.visible.valid,!display.mirrored,
+              display.frame.width > display.frame.height,inset.isFinite,inset >= 0,
+              display.visible.width >= 320 else { return nil }
+        let left=min(max(display.frame.x+inset,display.visible.x),display.visible.x+display.visible.width-320)
+        return Rect(left,display.visible.y,display.visible.x+display.visible.width-left,display.visible.height)
+    }
+    public static func isLeftEdge(_ frame: Rect, x: Double, y: Double) -> Bool {
+        frame.valid && abs(x-frame.x) <= 12 && y > frame.y+40 && y < frame.y+frame.height-12
+    }
+    public static func learnedInset(origin: Rect, current: Rect, display: Display) -> Double? {
+        guard origin.valid,current.valid,display.frame.width > display.frame.height,
+              abs(current.x-origin.x) >= 1,
+              abs(current.y-origin.y) <= 4,abs(current.height-origin.height) <= 4,
+              abs(current.x+current.width-origin.x-origin.width) <= 4 else { return nil }
+        return min(max(0,current.x-display.frame.x),max(0,display.visible.x+display.visible.width-display.frame.x-320))
     }
 }
 
@@ -184,6 +222,10 @@ public struct Database: Codable, Equatable {
     public init() {}
     public func validate() throws {
         guard schemaVersion == 1 else { throw CoreError.invalid("Unsupported schema") }
+        guard preferences.stageInsets.count <= 1600,
+              preferences.stageInsets.allSatisfy({ !$0.key.isEmpty && $0.key.utf8.count <= 16384 && $0.value.isFinite && $0.value >= 0 && $0.value < 1_000_000 }) else {
+            throw CoreError.invalid("Invalid stage inset preferences")
+        }
         guard profiles.count <= 100, history.count <= 200,
               Set(profiles.map(\.id)).count == profiles.count,
               Set(profiles.map { $0.topology.key }).count == profiles.count else { throw CoreError.invalid("Duplicate or excessive profiles") }
