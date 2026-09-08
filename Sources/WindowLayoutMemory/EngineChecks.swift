@@ -46,6 +46,8 @@ func runEngineChecks() -> Int32 {
     let engine=Engine(service:service,store:store,environment:env)
     pump(3.3)
     check("stable foreground becomes a candidate",engine.candidates.count == 1)
+    let previewScans=service.scans
+    check("preview reads cached geometry without AX scans",engine.previewScene(profileID:nil,mode:.current).rows.count == 1 && service.scans == previewScans)
     check("activation alone never persists",engine.database.profiles.isEmpty)
     check("default never moves user windows",service.moves == 0)
     let beforeStorm=service.scans
@@ -76,6 +78,7 @@ func runEngineChecks() -> Int32 {
     check("fixture exercises in-flight scan",!service.held.isEmpty)
     topology=Topology([display,Display(id:"fixture-b",name:"Synthetic B",frame:Rect(-1000,0,1000,900))])
     engine.displayChanged()
+    check("preview excludes records while topology is settling",engine.previewScene(profileID:nil,mode:.current).rows.isEmpty)
     for callback in service.held { callback(ScanResult(pid:424242,records:[service.record],error:nil)) }
     service.held=[];service.hold=false
     check("stale scan cannot publish after display invalidation",engine.candidates.isEmpty)
@@ -88,6 +91,8 @@ func runEngineChecks() -> Int32 {
     engine.togglePause();pump(2.5)
     trusted=false;engine.refresh();let deniedScans=service.scans;service.emit();pump(0.8)
     check("permission denial prevents new scans",service.scans == deniedScans && !engine.guardState.trusted)
+    check("preview hides observations after permission denial",engine.previewScene(profileID:nil,mode:.current).rows.isEmpty)
+    check("saved preview remains accessible without AX permission",engine.previewScene(profileID:nil,mode:.saved).rows.count == 1)
     engine.togglePause()
 
     do {

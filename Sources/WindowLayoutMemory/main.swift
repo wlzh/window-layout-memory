@@ -9,12 +9,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var panel: NSWindow?
     var textView: NSTextView?
     var closeObserver: NSObjectProtocol?
+    var preview: LayoutPreviewController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         engine=Engine()
         item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
         item.button?.image=NSImage(systemSymbolName:"rectangle.3.group",accessibilityDescription:"窗口布局记忆")
         item.button?.toolTip="Window Layout Memory"
-        engine.changed = { [weak self] in self?.updatePanel() }
+        engine.changed = { [weak self] in self?.updatePanel();self?.preview?.requestRefresh() }
         let menu=NSMenu(); menu.autoenablesItems=false; menu.delegate=self; item.menu=menu
         if !AXIsProcessTrusted() { showPanel() }
     }
@@ -23,9 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     func menuWillOpen(_ menu: NSMenu) {
         menu.removeAllItems()
-        add(menu,"Window Layout Memory 0.1.0-preview.2（开发预览）",nil)
+        add(menu,"Window Layout Memory \(AppVersion.label)",nil)
         add(menu,engine.status,nil)
         menu.addItem(.separator())
+        add(menu,"布局预览：当前 / 已保存 / 对比…",#selector(showPreview))
         add(menu,"保存已核对候选为基准 (\(engine.candidates.count))",#selector(save),enabled:!engine.busy && !engine.candidates.isEmpty)
         add(menu,"恢复当前前台窗口",#selector(restore),enabled:engine.profile != nil && !engine.busy)
         add(menu,"撤销最近恢复",#selector(undo),enabled:engine.canUndo)
@@ -183,6 +185,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updatePanel(); panel?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
     }
     @objc func closePanel() { panel?.close() }
+    @objc func showPreview() {
+        if preview == nil {
+            preview=LayoutPreviewController(provider:{ [weak self] id,mode in
+                self?.engine.previewScene(profileID:id,mode:mode) ?? PreviewScene.make(currentTopology:Topology([]),observations:[],profile:nil,mode:mode)
+            },profiles:{ [weak self] in self?.engine.database.profiles ?? [] },status:{ [weak self] in self?.engine.status ?? "" })
+            preview?.onClose = { [weak self] in DispatchQueue.main.async { self?.preview=nil } }
+            engine.refresh()
+        }
+        preview?.show()
+    }
     func updatePanel() {
         guard let textView else { return }
         textView.string=engine.report()+"\n\n使用：\n1. 菜单中授权辅助功能，再点重新核对。\n2. 依次激活需要记忆的窗口并停留约2秒。\n3. 点击保存候选，建立当前屏幕组合基准。\n4. 自动恢复默认关闭；确认基准后自行启用。\n\n普通桌面与台前调度均走相同保护路径。\n未激活窗口、同标题歧义、应用不支持通知时不会猜测。\n真实多屏/重启/8小时性能验收尚未完成，不应依赖此版作唯一布局备份。\n\nMIT License · Copyright 2026 wlzh\nhttps://github.com/wlzh/window-layout-memory"
@@ -205,7 +217,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func quit() { NSApp.terminate(nil) }
 }
 
-if CommandLine.arguments.contains("--self-test-engine") {
+if CommandLine.arguments.contains("--self-test-preview") {
+    #if DEBUG
+    exit(runPreviewChecks())
+    #else
+    fputs("Preview checks are available in debug builds only.\n",stderr);exit(2)
+    #endif
+} else if CommandLine.arguments.contains("--self-test-engine") {
     #if DEBUG
     exit(runEngineChecks())
     #else
@@ -213,7 +231,7 @@ if CommandLine.arguments.contains("--self-test-engine") {
     #endif
 } else if CommandLine.arguments.contains("--diagnose") {
     let topology=displaysNow()
-    let report:[String:Any] = ["version":"0.1.0","accessibilityTrusted":AXIsProcessTrusted(),
+    let report:[String:Any] = ["version":AppVersion.marketing,"release":AppVersion.label,"accessibilityTrusted":AXIsProcessTrusted(),
                               "displayCount":topology.displays.count,"topologyValid":topology.valid,
                               "displays":topology.displays.map { ["name":$0.name,"width":$0.frame.width,"height":$0.frame.height,"rotation":$0.rotation] as [String:Any] },
                               "os":ProcessInfo.processInfo.operatingSystemVersionString,

@@ -4,7 +4,9 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 面向 macOS 的窗口布局记忆应用。目标是保留用户在单屏、双屏、多屏环境下分别调整好的窗口大小、位置与显示器归属，在显示器切换和重新登录后恢复，不让系统临时重排覆盖用户偏好。
 
-**v0.1.0-preview.2：开发预览，不是稳定版。** 已有可运行应用、构建、核心与协调器集成测试；尚未完整满足PRD，台前调度开/关、实际插拔与登录恢复、代表性性能均未完成验收。
+**v0.2.0-preview.1：开发预览，不是稳定版。** 新增[只读布局预览](docs/PREVIEW.md)：当前、保存、对比视图，屏幕按真实比例排列，窗口坐标/尺寸/差值可核对。关闭释放预览资源，不新增周期性扫描。尚未完整满足全部实机门禁。
+
+![布局预览，合成测试数据，不是真实用户窗口](docs/assets/layout-preview.png)
 
 当前实现：前台普通窗口核对、候选保存、按显示器组合隔离基准、锁定、历史回退、保守匹配、可选恢复及一次核验、暂停、排除、私人备份和登录启动设置。自动移动默认关闭。
 
@@ -28,7 +30,7 @@ zsh scripts/package-release.sh
 
 测试包含纯核心回归与注入假窗口服务的Engine集成回归；覆盖率、用例数及实机状态见[测试报告](docs/TESTING.md)。核心行覆盖**不包括Engine、AX、UI**，不得解读为全项目覆盖率。10分钟代表性负载及8小时驻留未通过前，不宣称CPU/内存预算达标。
 
-详见 [使用指南](docs/USER_GUIDE.md)、[测试报告](docs/TESTING.md)、[兼容性](docs/COMPATIBILITY.md)、[发行说明](docs/releases/v0.1.0-preview.2.md)。
+详见 [使用指南](docs/USER_GUIDE.md)、[测试报告](docs/TESTING.md)、[兼容性](docs/COMPATIBILITY.md)、[发行说明](docs/releases/v0.2.0-preview.1.md)。
 
 ## Planned scope
 
@@ -55,6 +57,6 @@ Do not commit real window titles, document paths, display serial numbers, screen
 
 ## Version and license
 
-Current development preview: **0.1.0-preview.2**, build 2. See [CHANGELOG](CHANGELOG.md).
+Current development preview: **0.2.0-preview.1**, build 3. See [CHANGELOG](CHANGELOG.md).
 
 Copyright (c) 2026 wlzh. Licensed under the [MIT License](LICENSE).

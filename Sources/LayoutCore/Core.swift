@@ -272,6 +272,70 @@ public struct GuardState {
     }
 }
 
+public enum PreviewMode: Int { case current, saved, comparison }
+public struct PreviewObservation {
+    public var token: String, bundle: String, name: String, frame: Rect, identity: WindowIdentity
+    public var observedAt: Date, usable: Bool
+    public init(token: String, name: String, identity: WindowIdentity, frame: Rect, observedAt: Date, usable: Bool) {
+        self.token=token;self.bundle=identity.bundle;self.name=name;self.identity=identity
+        self.frame=frame;self.observedAt=observedAt;self.usable=usable
+    }
+}
+public struct PreviewRow: Identifiable {
+    public var id: String, bundle: String, name: String
+    public var current: Rect?, saved: Rect?, observedAt: Date?
+    public var usable: Bool, ambiguous: Bool
+    public var delta: Rect? {
+        guard let current,let saved else { return nil }
+        return Rect(current.x-saved.x,current.y-saved.y,current.width-saved.width,current.height-saved.height)
+    }
+}
+public struct PreviewScene {
+    public var topology: Topology, rows: [PreviewRow], sameCombination: Bool
+    public static func make(currentTopology: Topology, observations: [PreviewObservation], profile: Profile?, mode: PreviewMode,
+                            bindings: [UUID:String] = [:]) -> PreviewScene {
+        let same=profile == nil || profile?.topology.key == currentTopology.key
+        let topology=same ? currentTopology:profile!.topology
+        let saved=profile?.windows ?? []
+        let live=same ? observations.filter { $0.frame.valid }:[]
+        let match=Matcher.assign(saved,live.map { LiveWindow(token:$0.token,identity:$0.identity,frame:$0.frame) },bindings:bindings)
+        var rows: [PreviewRow]=[]
+        var used=Set<String>()
+        if mode != .current {
+            for window in saved {
+                let observation=match.resolved[window.id].flatMap { token in live.first { $0.token == token } }
+                if let observation { used.insert(observation.token) }
+                rows.append(PreviewRow(id:window.id.uuidString,bundle:window.identity.bundle,
+                    name:observation?.name ?? window.identity.bundle,
+                    current:mode == .comparison ? observation?.frame:nil,saved:window.frame,
+                    observedAt:observation?.observedAt,usable:observation?.usable ?? false,ambiguous:match.ambiguous.contains(window.id)))
+            }
+        }
+        if mode != .saved && same {
+            for observation in live where !used.contains(observation.token) {
+                rows.append(PreviewRow(id:"live:"+observation.token,bundle:observation.bundle,name:observation.name,
+                    current:observation.frame,saved:nil,observedAt:observation.observedAt,usable:observation.usable,ambiguous:false))
+            }
+        }
+        return PreviewScene(topology:topology,rows:rows.sorted { ($0.name,$0.id) < ($1.name,$1.id) },sameCombination:same)
+    }
+}
+public struct PreviewTransform {
+    public let desktop: Rect, scale: Double, offsetX: Double, offsetY: Double
+    public init?(displays: [Display], width: Double, height: Double, padding: Double = 36) {
+        guard !displays.isEmpty,displays.allSatisfy({ $0.frame.valid }),width.isFinite,height.isFinite,
+              padding.isFinite,padding >= 0,width > padding*2,height > padding*2 else { return nil }
+        let x=displays.map { $0.frame.x }.min()!,y=displays.map { $0.frame.y }.min()!
+        let right=displays.map { $0.frame.x+$0.frame.width }.max()!,bottom=displays.map { $0.frame.y+$0.frame.height }.max()!
+        desktop=Rect(x,y,right-x,bottom-y)
+        scale=min((width-2*padding)/desktop.width,(height-2*padding)/desktop.height)
+        offsetX=(width-desktop.width*scale)/2;offsetY=(height-desktop.height*scale)/2
+    }
+    public func project(_ frame: Rect) -> Rect {
+        Rect(offsetX+(frame.x-desktop.x)*scale,offsetY+(frame.y-desktop.y)*scale,frame.width*scale,frame.height*scale)
+    }
+}
+
 public final class LayoutStore {
     public let directory: URL
     public var file: URL { directory.appendingPathComponent("layouts.json") }
