@@ -5,6 +5,7 @@ swift run CoreTests
 swift build --product WindowLayoutMemory
 swift run WindowLayoutMemory --self-test-engine
 swift run WindowLayoutMemory --self-test-preview
+swift run WindowLayoutMemory --self-test-about
 git diff --check
 plutil -lint Resources/Info.plist
 test "$(tr -d '[:space:]' < VERSION)" = "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
