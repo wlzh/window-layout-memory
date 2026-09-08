@@ -33,6 +33,10 @@ func runEngineChecks() -> Int32 {
         else { failed+=1;print("FAIL ENGINE \(name)") }
     }
     func pump(_ seconds: TimeInterval) { RunLoop.main.run(until:Date(timeIntervalSinceNow:seconds)) }
+    func awaitCondition(_ condition: ()->Bool) {
+        let deadline=Date(timeIntervalSinceNow:8)
+        while !condition(),Date() < deadline { pump(0.05) }
+    }
     let root=FileManager.default.temporaryDirectory.appendingPathComponent("wlm-engine-tests-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at:root) }
     let display=Display(id:"fixture-a",name:"Synthetic A",frame:Rect(0,0,1200,900),primary:true)
@@ -61,7 +65,8 @@ func runEngineChecks() -> Int32 {
     check("no-op save does not increase revision",engine.profile?.revision == revision)
     pointer=true;engine.pointerEvent(down:true);service.record.frame.x=250;service.emit();pump(0.8)
     check("drag in progress is not persisted",engine.profile?.windows.first?.frame.x == 20)
-    pointerPoint.x=330;pointer=false;engine.pointerEvent(down:false);pump(3.5)
+    pointerPoint.x=330;pointer=false;engine.pointerEvent(down:false)
+    awaitCondition { engine.profile?.windows.first?.frame.x == 250 && !engine.busy }
     check("stable released gesture automatically persists",engine.profile?.windows.first?.frame.x == 250)
     check("automatic learning updates rather than duplicates role",engine.profile?.windows.count == 1)
     check("disk matches learned geometry",(try? store.load().profiles.first?.windows.first?.frame.x) == 250)
@@ -104,7 +109,8 @@ func runEngineChecks() -> Int32 {
         pointerPoint=CGPoint(x:100,y:45);pointer=true;learner.pointerEvent(down:true)
         delayed.record.frame=Rect(320,140,480,360)
         pointerPoint=CGPoint(x:400,y:145);pointer=false;learner.pointerEvent(down:false)
-        delayed.emit();pump(3.5)
+        delayed.emit()
+        awaitCondition { learner.profile?.windows.first?.frame == delayed.record.frame && !learner.busy }
         check("AX notification after release creates independent first profile",learner.profile?.windows.first?.frame == delayed.record.frame)
         check("released gesture is persisted on disk",(try? delayedStore.load().profiles.first?.windows.first?.frame) == delayed.record.frame)
         let saved=learner.profile?.windows.first?.frame,rev=learner.profile?.revision
@@ -135,7 +141,8 @@ func runEngineChecks() -> Int32 {
         check("display change invalidates pointer evidence without creating profile",learner.profile == nil && learner.database.profiles.count == 1)
         pointerPoint=CGPoint(x:400,y:145);pointer=true;learner.pointerEvent(down:true)
         delayed.record.frame.width=550
-        pointerPoint.x=480;pointer=false;learner.pointerEvent(down:false);pump(3.5)
+        pointerPoint.x=480;pointer=false;learner.pointerEvent(down:false)
+        awaitCondition { learner.profile?.windows.first?.frame == delayed.record.frame && !learner.busy }
         check("mouse release triggers capture even without AX geometry notification",learner.profile?.windows.first?.frame == delayed.record.frame)
         learner.togglePause()
     }
