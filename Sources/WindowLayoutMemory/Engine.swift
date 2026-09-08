@@ -226,7 +226,12 @@ final class Engine {
         for record in batch where record.focused && record.usable {
             guard environment.frontPID() == record.pid else { continue }
             guard evidence[record.token] != nil || evidence.count < 500 else { issues["capacity"]="已达到500个候选上限，请保存并重新核对"; continue }
-            if now < suppressUntil[record.token,default:0] { continue }
+            if now < suppressUntil[record.token,default:0] {
+                // Keep a newly activated window pending through the finite move guard.
+                // Ordinary geometry notifications must not rearm a completed fill.
+                if stageEnabled,!stageAttempted.contains(record.token) { enqueue(record.pid) }
+                continue
+            }
             if let old=evidence[record.token],old.0.close(to:record.frame,tolerance:0.5),now-old.1 >= 0.45 {
                 let pointerDown=environment.pointerDown()
                 if pointerDown { enqueue(record.pid); continue }
