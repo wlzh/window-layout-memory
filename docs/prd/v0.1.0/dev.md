@@ -2,7 +2,9 @@
 
 状态：方案已获确认，开发预览已实现。下文含未完成设计，不是现有能力清单或测试通过报告。
 
-## 实现与方案差异
+## 历史实现与方案差异
+
+本节开头记录v0.1.0-preview.1，末尾补充preview.2；第0至14节保留早期设计，不是当前代码清单。现行能力见[状态总览](../../STATUS.md)。早期“最多2次重试、镜像折叠、独立reducer、拟新增文件”等均不可视为已实现；现行仅对特定无几何变化的AX临时错误重试一次，镜像拒绝。
 
 核心集中于Sources/LayoutCore/Core.swift，应用为Engine.swift、Platform.swift、main.swift。尚无完整纯reducer、恢复重试、第三方应用启动、规则编辑器和屏幕别名映射。候选仅会话内保留，需用户保存；只核对/恢复前台窗口。自动恢复默认关闭。
 
@@ -10,7 +12,7 @@ CLT已用Swift插桩/llvm-cov测核心覆盖，无需XCTest；71核心用例通�
 
 需求见 [PRD](prd.md)，界面见 [design.md](design.md)。
 
-## 0. 现状审查
+## 0. 设计启动时的历史审查
 
 已检查 main 分支：现有仓库只有 README、VERSION、MIT、贡献/安全文档、更新日志与 PRD；没有 Package.swift、入口、运行时、数据模型或测试模块。以下文件和类型均为拟新增，不冒充现有架构。
 
@@ -117,7 +119,7 @@ dirty 集合与工作队列有上限；超限只保留“某应用需重新核�
 
 ## 6. 普通桌面与台前调度
 
-不依赖未文档化的台前调度 defaults key，也不假设有可靠公共开关通知。两种模式采用同一条基于窗口状态/可信度的管线。
+v0.1.0普通布局管线不依赖未文档化的台前调度defaults key，也不假设有可靠公共开关通知。v0.3.0新增的可选横屏铺满另行读取非公开约定的WindowManager偏好，限制见[铺满说明](../../STAGE_FILL.md)，不能把此处旧方案当作全应用现状。
 
 1. 只读取 AX 标准窗口，排除系统覆盖层和非目标辅助窗口；全屏在范围外。
 2. AXPosition/AXSize 成功、有限值、角色合法仅是基本条件，不等于已证实真实几何。
@@ -260,7 +262,7 @@ UI 只提交用户命令，不直接写 JSON 或 AX 属性。展示层不会触�
 - [SMAppService.register](https://developer.apple.com/documentation/servicemanagement/smappservice/register())：登录启动受用户授权控制。
 
 上述依据只证明接口契约，不证明本项目已实现或所有应用兼容。
-# preview.2 实现补充
+## v0.1.0-preview.2 历史实现补充
 
 Engine通过WindowService及EngineEnvironment注入窗口服务、拓扑、权限、时钟、鼠标和进程快照。假服务集成测试使用临时目录，不接触真实用户窗口或布局。系统通知仍只在生产环境注册。
 

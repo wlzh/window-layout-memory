@@ -4,7 +4,7 @@ Window titles and document identifiers can contain private information. Keep rea
 captures and exports out of issues, pull requests and public logs. Redact before
 sharing. Do not attach credentials, signing keys or personal layout archives.
 
-The planned app operates locally. Accessibility access must be granted by the
+The app operates locally. Accessibility access must be granted by the
 user through macOS; no permission bypass is permitted. Missing or revoked access
 must stop affected operations, not silently report successful capture or restore.
 

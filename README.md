@@ -16,13 +16,18 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 ## Build and use
 
+**源码与安装版有区别：** main包含尚未发行的保护期漏触发修复（c5a2836），当前公开发行及本机安装仍为build 6，不包含该补丁。已发布版本213项检查、修复源码215项检查，不能混用。当前版本、授权时间线和未解决问题统一见[状态总览](docs/STATUS.md)。
+
 ```sh
+ruby scripts/check-docs.rb
 zsh scripts/test-all.sh
 zsh scripts/coverage.sh
 zsh scripts/build-app.sh
 zsh scripts/install-local.sh
 zsh scripts/package-release.sh
 ```
+
+以上是独立工作命令，不是每次都顺序执行：`package-release.sh`本身会重新测试、构建并签名dist产物，但不安装或发布。文档修改只运行文档检查；已有已验证发行包不要为修改说明反复重建。源码有Unreleased改动时，发布前必须统一推进版本，不能覆盖同版本旧发行包。
 
 需要macOS和Swift Command Line Tools。首次打开应用，在系统设置授权辅助功能后点击“重新核对”。依次激活目标窗口，停留约2秒，点击“保存已核对候选为基准”。确认基准正确后再启用自动恢复。
 
@@ -57,7 +62,7 @@ Do not commit real window titles, document paths, display serial numbers, screen
 
 ## Version and license
 
-Current development preview: **0.3.0-preview.2**, build 6. See [CHANGELOG](CHANGELOG.md).
+Latest published preview: **0.3.0-preview.2**, build 6. Unreleased source changes are listed in [CHANGELOG](CHANGELOG.md); see [current status](docs/STATUS.md).
 
 Author: [X @wlzh](https://x.com/wlzh). Website: [869hr.uk](https://869hr.uk).
 
