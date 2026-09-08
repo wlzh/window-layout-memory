@@ -4,7 +4,7 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 面向 macOS 的窗口布局记忆应用。目标是保留用户在单屏、双屏、多屏环境下分别调整好的窗口大小、位置与显示器归属，在显示器切换和重新登录后恢复，不让系统临时重排覆盖用户偏好。
 
-**v0.2.0-preview.1：开发预览，不是稳定版。** 新增[只读布局预览](docs/PREVIEW.md)：当前、保存、对比视图，屏幕按真实比例排列，窗口坐标/尺寸/差值可核对。关闭释放预览资源，不新增周期性扫描。尚未完整满足全部实机门禁。
+**v0.2.0-preview.2：开发预览，不是稳定版。** 修复鼠标松手后AX通知到达导致的漏记路径。包含[只读布局预览](docs/PREVIEW.md)：当前、保存、对比视图，屏幕按真实比例排列，窗口坐标/尺寸/差值可核对。关闭释放预览资源，不新增周期性扫描。尚未完整满足全部实机门禁。
 
 ![布局预览，合成测试数据，不是真实用户窗口](docs/assets/layout-preview.png)
 
@@ -30,7 +30,7 @@ zsh scripts/package-release.sh
 
 测试包含纯核心回归与注入假窗口服务的Engine集成回归；覆盖率、用例数及实机状态见[测试报告](docs/TESTING.md)。核心行覆盖**不包括Engine、AX、UI**，不得解读为全项目覆盖率。10分钟代表性负载及8小时驻留未通过前，不宣称CPU/内存预算达标。
 
-详见 [使用指南](docs/USER_GUIDE.md)、[测试报告](docs/TESTING.md)、[兼容性](docs/COMPATIBILITY.md)、[发行说明](docs/releases/v0.2.0-preview.1.md)。
+详见 [使用指南](docs/USER_GUIDE.md)、[测试报告](docs/TESTING.md)、[兼容性](docs/COMPATIBILITY.md)、[发行说明](docs/releases/v0.2.0-preview.2.md)。
 
 ## Planned scope
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0-preview.2] - 2026-09-08
+
+- 使用鼠标按下/松开生命周期捕获窗口拖动证据，支持松手后AX通知及释放时触发有界核对。
+- 不再用移动后鼠标位置命中旧窗口边缘；要求起点命中、位移至少3pt、窗口几何实际改变。
+- 暂停、切屏、权限失效撤销未完成手势；无几何变化清理证据，普通点击与内容区拖动不自动保存。
+- 新增协调器回归。鼠标仅按下/松开事件监听，无mouseMoved监听、截图或空闲轮询；退出移除监听。
+- build 4、schema 1；WPS实际重测与完整硬件性能门禁仍需验证。
+
 ## [0.2.0-preview.1] - 2026-09-08
 
 - Add native read-only current/saved/comparison layout preview with proportional monitor geometry and coordinate details.
