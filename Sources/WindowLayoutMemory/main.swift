@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var textView: NSTextView?
     var closeObserver: NSObjectProtocol?
     var preview: LayoutPreviewController?
+    var about: AboutWindowController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         engine=Engine()
         item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
@@ -73,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add(menu,"布局状态与使用说明…",#selector(showPanel))
         add(menu,"授权辅助功能…",#selector(authorize))
         add(menu,"重新核对权限与窗口",#selector(refresh))
-        add(menu,"GitHub / MIT / 文档",#selector(openProject))
+        add(menu,"关于窗口布局记忆…",#selector(showAbout))
         add(menu,"退出",#selector(quit),key:"q")
     }
     @discardableResult func add(_ menu:NSMenu,_ title:String,_ action:Selector?,enabled:Bool=true,key:String="") -> NSMenuItem {
@@ -218,11 +219,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard panel.runModal() == .OK,let url=panel.url,confirm("导入将替换布局库。请先导出当前备份。自动恢复将关闭。") else { return }
         engine.importBackup(url)
     }
-    @objc func openProject() { NSWorkspace.shared.open(URL(string:"https://github.com/wlzh/window-layout-memory")!) }
+    @objc func showAbout() {
+        if about == nil {
+            about=AboutWindowController()
+            about?.onClose={ [weak self] in self?.about=nil }
+        }
+        NSApp.activate(ignoringOtherApps:true)
+        about?.showWindow(nil);about?.window?.makeKeyAndOrderFront(nil)
+    }
     @objc func quit() { NSApp.terminate(nil) }
 }
 
-if CommandLine.arguments.contains("--self-test-preview") {
+if CommandLine.arguments.contains("--self-test-about") {
+    #if DEBUG
+    exit(runAboutChecks())
+    #else
+    fputs("About checks are available in debug builds only.\n",stderr);exit(2)
+    #endif
+} else if CommandLine.arguments.contains("--self-test-preview") {
     #if DEBUG
     exit(runPreviewChecks())
     #else
