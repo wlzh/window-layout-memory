@@ -7,3 +7,7 @@ Engine在稳定前台批次里先处理铺满，再处理普通恢复。独立�
 Platform注入stageManagerEnabled与stageDisplay以便测试。生产只读CFPreferences和NSScreen；系统状态未知失败关闭。AX移动沿用逐步权限/焦点/鼠标/拓扑检查，额外重验实时目标工作区。不新增第三方依赖、周期扫描或录屏权限。对外服务接口无新增网络API。
 
 导入关闭新模式。测试使用假AX与真实Engine，另需人工验证操作系统偏好读取及实际应用尺寸限制。
+
+## preview.2 关于增量
+
+AboutWindowController只依赖AppKit和AppVersion。AppDelegate按需持有单实例，以弱捕获关闭回调清空引用；windowWillClose幂等解除delegate、contentView、按钮target、URL闭包与window。AboutLink枚举集中固定HTTPS资源，生产交给NSWorkspace，测试注入回调核对独立预期URL。不创建Engine实例、不读取布局文件、不增加定时器；18项DEBUG检查加入test-all.sh，release入口拒绝执行。版本推进build 6，不更改schema或布局引擎。
