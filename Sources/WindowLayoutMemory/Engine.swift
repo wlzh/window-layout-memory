@@ -24,6 +24,9 @@ final class Engine {
     private var settleTask: DispatchWorkItem?
     private var saveTask: DispatchWorkItem?
     private var learning=LearningGate()
+    private var mouseMonitor: Any?
+    private var pointerStart: (token:String,pid:pid_t,frame:Rect,point:CGPoint,time:TimeInterval)?
+    private var gestureOrigins: [String:Rect]=[:]
     private var learnAfter: TimeInterval=0
     private var observers: [NSObjectProtocol]=[]
     private var undo: [(AXRecord,Rect)]=[]
@@ -45,23 +48,16 @@ final class Engine {
             guard let self else { return }
             if name == kAXFocusedWindowChangedNotification || name == kAXApplicationActivatedNotification || name == kAXApplicationDeactivatedNotification {
                 self.evidence = self.evidence.filter { !$0.key.hasPrefix("\(pid):") }
-                for record in self.records[pid] ?? [] { self.learning.discard(record.token) }
+                if self.pointerStart?.pid == pid { self.pointerStart=nil }
                 self.learnAfter=self.environment.now()+1
-            }
-            if name == kAXWindowMovedNotification || name == kAXWindowResizedNotification,
-               let record=self.records[pid]?.first(where:{ CFEqual($0.element,element) }) {
-                let now=self.environment.now()
-                let point=self.environment.pointerLocation()
-                self.learning.note(record.token,now:now,pointerDown:self.environment.pointerDown(),
-                    eligible:self.guardState.permits(self.guardState.generation,key:self.topology.key) &&
-                    now >= self.learnAfter && !self.moving.contains(record.token) &&
-                    now >= self.suppressUntil[record.token,default:0] && record.usable && record.focused &&
-                    point.map { record.frame.isDragHandle(x:$0.x,y:$0.y) } == true &&
-                    self.environment.frontPID() == pid)
             }
             self.enqueue(pid)
         }
         if environment.observeSystem {
+        mouseMonitor=NSEvent.addGlobalMonitorForEvents(matching:[.leftMouseDown,.leftMouseUp]) { [weak self] event in
+            self?.pointerEvent(down:event.type == .leftMouseDown)
+        }
+        if mouseMonitor == nil { issues["mouse"]="鼠标手势监听不可用，自动记忆不可用；仍可手动保存" }
         let center=NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification,NSWorkspace.didActivateApplicationNotification,
                      NSWorkspace.didHideApplicationNotification,NSWorkspace.didUnhideApplicationNotification] {
@@ -96,6 +92,7 @@ final class Engine {
             DispatchQueue.main.async { engine.displayChanged() }
         }
     deinit {
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         timer?.cancel();settleTask?.cancel();saveTask?.cancel()
         for observer in observers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
@@ -107,9 +104,38 @@ final class Engine {
     private func invalidate(_ message: String) {
         guardState.invalidate(); timer?.cancel(); timer=nil; settleTask?.cancel(); pending=[]
         saveTask?.cancel(); saveTask=nil; learning.reset()
+        pointerStart=nil;gestureOrigins.removeAll(keepingCapacity:true)
         evidence=[:]; candidates=[:]; attempted=[]; suppressUntil=[:]; undo=[]; rescan=[]
         issues=issues.filter { !$0.key.hasPrefix("restore:") }
         status=message; changed?()
+    }
+    // Capture the handle before movement; AX geometry notifications may arrive after mouse-up.
+    func pointerEvent(down: Bool) {
+        let now=environment.now()
+        guard guardState.permits(guardState.generation,key:topology.key),environment.trusted(),
+              environment.topology().key == topology.key,let point=environment.pointerLocation() else {
+            pointerStart=nil;learning.reset();gestureOrigins.removeAll();return
+        }
+        if down {
+            pointerStart=nil
+            guard now >= learnAfter,let pid=environment.frontPID(),
+                  let record=records[pid]?.first(where:{ $0.focused && $0.usable }),
+                  !database.preferences.excludedBundles.contains(record.identity.bundle),
+                  !moving.contains(record.token),now >= suppressUntil[record.token,default:0],
+                  record.frame.isDragHandle(x:point.x,y:point.y) else { return }
+            learning.discard(record.token);gestureOrigins[record.token]=nil
+            pointerStart=(record.token,pid,record.frame,point,now)
+        } else {
+            guard let start=pointerStart else { return }
+            pointerStart=nil
+            guard environment.frontPID() == start.pid,now >= start.time,now-start.time <= 120,
+                  hypot(point.x-start.point.x,point.y-start.point.y) >= 3,
+                  !moving.contains(start.token),now >= suppressUntil[start.token,default:0] else { return }
+            if gestureOrigins.count >= 500 { gestureOrigins.removeAll();learning.reset() }
+            gestureOrigins[start.token]=start.frame
+            learning.note(start.token,now:now,pointerDown:true,eligible:true)
+            enqueue(start.pid)
+        }
     }
     func displayChanged() {
         invalidate("等待显示配置稳定")
@@ -186,7 +212,11 @@ final class Engine {
             if let old=evidence[record.token],old.0.close(to:record.frame,tolerance:0.5),now-old.1 >= 0.45 {
                 let pointerDown=environment.pointerDown()
                 if pointerDown { enqueue(record.pid); continue }
-                let userMoved=learning.permits(record.token,now:now,pointerDown:false,stable:true,eligible:true)
+                if gestureOrigins[record.token]?.close(to:record.frame,tolerance:0.5) == true {
+                    learning.discard(record.token);gestureOrigins[record.token]=nil
+                }
+                let userMoved=learning.permits(record.token,now:now,pointerDown:false,stable:true,
+                    eligible:gestureOrigins[record.token].map { !$0.close(to:record.frame,tolerance:0.5) } == true)
                 if userMoved { attempted.insert("\(guardState.generation):\(record.token)") }
                 if !userMoved,database.preferences.autoRestore,let p=profile { restoreRecord(record,profile:p,matching:matching,manual:false) }
                 guard database.preferences.autoObserve,now >= suppressUntil[record.token,default:0],
@@ -220,7 +250,8 @@ final class Engine {
             let now=self.environment.now()
             let eligible=self.candidates.filter { token,window in
                 self.learning.permits(token,now:now,pointerDown:self.environment.pointerDown(),
-                    stable:self.allRecords.contains(where: { $0.token == token && $0.frame.close(to:window.frame,tolerance:0.5) }),eligible:true)
+                    stable:self.allRecords.contains(where: { $0.token == token && $0.frame.close(to:window.frame,tolerance:0.5) }),
+                    eligible:self.gestureOrigins[token].map { !$0.close(to:window.frame,tolerance:0.5) } == true)
             }
             self.save(Array(eligible),automatic:true)
         }
@@ -241,7 +272,7 @@ final class Engine {
             for (token,window) in captures {
                 self.bindings[window.id]=token
                 self.attempted.insert("\(generation):\(token)")
-                if self.candidates[token] == window { self.learning.discard(token) }
+                if self.candidates[token] == window { self.learning.discard(token);self.gestureOrigins[token]=nil }
             }
         }
     }
