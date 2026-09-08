@@ -10,6 +10,10 @@
 
 release构建、codesign和plist检查通过；发行二进制拒绝`--self-test-about`并返回2。本机build 6已安装，升级前后私人layouts.json逐字节一致。启动后确认版本、3个布局和原有开关/留白保留；辅助功能状态为未授权，需要用户重新添加当前签名的应用。关于专项不依赖该权限；本轮未将安装版菜单手工点击或外部网页连通性记为已通过。
 
+GitHub预发行包回下载SHA256通过，解压后的codesign通过，二进制与本机安装版逐字节相同。校验值与资产名见[发行说明](releases/v0.3.0-preview.2.md)。
+
+[CI 34226226236](https://github.com/wlzh/window-layout-memory/actions/runs/34226226236)通过，源提交e838e04，耗时4分24秒，包含完整测试、release构建、核心和Engine插桩覆盖率。硬件范围步骤仅声明未运行实机测试，不作为硬件通过证据。
+
 ## v0.3.0 台前调度铺满验证
 
 | 门禁 | 结果与范围 |
