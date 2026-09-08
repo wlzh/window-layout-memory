@@ -411,6 +411,68 @@ test("combination-specific internal-screen layouts survive disk restart") {
     }
     try expect(loaded.profiles.count == 5)
 }
+test("preview transform fits negative origin and portrait displays without changing aspect") {
+    let t=PreviewTransform(displays:three.displays,width:900,height:500)!
+    let r=t.project(c.frame)
+    try expect(abs(r.width/r.height-c.frame.width/c.frame.height)<0.00001)
+    for d in three.displays { let p=t.project(d.frame);try expect(p.x >= 35.999999 && p.y >= 35.999999 && p.x+p.width <= 864.000001 && p.y+p.height <= 464.000001,"projected canvas bounds") }
+    try expect(abs(t.project(b.frame).x+t.project(b.frame).width-t.project(a.frame).x)<0.000001,"shared display edge")
+}
+test("preview transform rejects empty invalid and undersized canvas") {
+    try expect(PreviewTransform(displays:[],width:900,height:500) == nil)
+    try expect(PreviewTransform(displays:[a],width:50,height:50) == nil)
+    try expect(PreviewTransform(displays:[a],width:.nan,height:500) == nil)
+    try expect(PreviewTransform(displays:[a],width:900,height:500,padding:-1) == nil)
+    var d=a;d.frame.width=0;try expect(PreviewTransform(displays:[d],width:900,height:500) == nil)
+}
+let previewTime=Date(timeIntervalSince1970:1000)
+func observation(_ frame: Rect=Rect(30,60,450,350),token: String="live",identity: WindowIdentity=identity) -> PreviewObservation {
+    PreviewObservation(token:token,name:"Fixture",identity:identity,frame:frame,observedAt:previewTime,usable:true)
+}
+test("comparison uniquely matches saved and observed geometry with signed delta") {
+    let p=profile(),o=observation()
+    let s=PreviewScene.make(currentTopology:one,observations:[o],profile:p,mode:.comparison)
+    try expect(s.rows.count == 1 && s.rows[0].current == o.frame && s.rows[0].saved == p.windows[0].frame)
+    try expect(s.rows[0].delta == Rect(10,20,50,50))
+    try expect(s.rows[0].observedAt == previewTime)
+}
+test("current preview never shows saved geometry") {
+    let s=PreviewScene.make(currentTopology:one,observations:[observation()],profile:profile(),mode:.current)
+    try expect(s.rows.count == 1 && s.rows[0].saved == nil && s.rows[0].delta == nil)
+}
+test("saved preview preserves raw coordinates not adapted restore targets") {
+    var d=a;d.visible=Rect(0,30,1000,770)
+    let p=profile(),s=PreviewScene.make(currentTopology:Topology([d]),observations:[observation()],profile:p,mode:.saved)
+    try expect(s.rows[0].saved == p.windows[0].frame && s.rows[0].current == nil)
+}
+test("other combination preview excludes all current internal-screen windows") {
+    let s=PreviewScene.make(currentTopology:two,observations:[observation()],profile:profile(one),mode:.comparison)
+    try expect(!s.sameCombination && s.topology.key == one.key)
+    try expect(s.rows.count == 1 && s.rows[0].current == nil && s.rows[0].observedAt == nil)
+}
+test("other combination cannot render current mode") {
+    try expect(PreviewScene.make(currentTopology:two,observations:[observation()],profile:profile(one),mode:.current).rows.isEmpty)
+}
+test("ambiguous preview keeps observations separate from saved role") {
+    let s=PreviewScene.make(currentTopology:one,observations:[observation(token:"1"),observation(token:"2")],profile:profile(),mode:.comparison)
+    try expect(s.rows.count == 3)
+    try expect(s.rows.filter(\.ambiguous).count == 1 && s.rows.allSatisfy { $0.delta == nil })
+}
+test("missing permission observations still allow saved preview") {
+    let s=PreviewScene.make(currentTopology:one,observations:[],profile:profile(),mode:.comparison)
+    try expect(s.rows.count == 1 && s.rows[0].current == nil && !s.rows[0].usable)
+}
+test("preview respects runtime bindings for title changes") {
+    let p=profile(),o=observation(identity:WindowIdentity(bundle:identity.bundle,title:"changed"))
+    let s=PreviewScene.make(currentTopology:one,observations:[o],profile:p,mode:.comparison,bindings:[p.windows[0].id:o.token])
+    try expect(s.rows.count == 1 && s.rows[0].delta != nil)
+}
+test("preview rejects invalid observations and sorts independently of enumeration") {
+    let x=observation(token:"x"),y=observation(token:"y"),bad=observation(Rect(0,0,0,0),token:"bad")
+    let first=PreviewScene.make(currentTopology:one,observations:[x,y,bad],profile:nil,mode:.current)
+    let second=PreviewScene.make(currentTopology:one,observations:[y,x],profile:nil,mode:.current)
+    try expect(first.rows.map(\.id) == second.rows.map(\.id) && first.rows.count == 2)
+}
 print("CORE_TESTS passed=\(passed) failed=\(failed) assertions=\(assertions)")
 print("Coverage percentage: NOT MEASURED. AX, UI, Stage Manager, hardware and performance tests: NOT RUN.")
 exit(failed==0 ? 0:1)

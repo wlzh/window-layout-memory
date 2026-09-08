@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.0-preview.1] - 2026-09-08
+
+- Add native read-only current/saved/comparison layout preview with proportional monitor geometry and coordinate details.
+- Keep other monitor combinations isolated, including their built-in display windows.
+- Show last-read timestamps and ambiguity without claiming background visibility or stacking order.
+- Coalesce event-driven preview updates; cancel pending work and release window/controller/canvas on close.
+- Add projection, matching, cached-preview, AppKit refresh/lifecycle and synthetic rendering checks.
+- Centralize bundle version/channel/build display. Build 3; schema 1 retained; no screen recording required.
+- Full physical monitor, real AX and long-run performance acceptance remains separate.
+
 ## [0.1.0-preview.2] - 2026-09-07
 
 ### Added

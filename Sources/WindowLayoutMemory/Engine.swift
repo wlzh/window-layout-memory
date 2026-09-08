@@ -11,6 +11,7 @@ final class Engine {
     private(set) var topology: Topology
     private(set) var guardState=GuardState()
     private(set) var records: [pid_t:[AXRecord]]=[:]
+    private var recordContexts: [pid_t:(String,Date)]=[:]
     private(set) var candidates: [String:SavedWindow]=[:]
     private var evidence: [String:(Rect,TimeInterval)]=[:]
     private var bindings: [UUID:String]=[:]
@@ -72,7 +73,7 @@ final class Engine {
         observers.append(center.addObserver(forName:NSWorkspace.didTerminateApplicationNotification,object:nil,queue:.main) { [weak self] note in
             guard let self,let app=note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let pid=app.processIdentifier
-            self.service.detach(pid); self.records[pid]=nil; self.pending.remove(pid)
+            self.service.detach(pid); self.records[pid]=nil; self.recordContexts[pid]=nil; self.pending.remove(pid)
             self.evidence=self.evidence.filter { !$0.key.hasPrefix("\(pid):") }
             self.candidates=self.candidates.filter { !$0.key.hasPrefix("\(pid):") }
             self.bindings=self.bindings.filter { !$0.value.hasPrefix("\(pid):") }
@@ -168,6 +169,7 @@ final class Engine {
                     self.candidates=self.candidates.filter { !$0.key.hasPrefix("\(pid):") || tokens.contains($0.key) }
                 }
                 self.records[pid]=result.records
+                self.recordContexts[pid]=(key,Date())
                 self.issues[bundle]=result.error
                 self.ingest(result.records)
                 self.changed?()
@@ -392,6 +394,15 @@ final class Engine {
         }
         catch { status="导入失败：\(error)"; changed?() }
     }
+    func previewScene(profileID: UUID?, mode: PreviewMode) -> PreviewScene {
+        let selected=profileID.flatMap { id in database.profiles.first { $0.id == id } } ?? profile
+        let observations: [PreviewObservation] = guardState.settling || !environment.trusted() ? [] : allRecords.compactMap { record in
+            guard let (key,time)=recordContexts[record.pid],key == topology.key else { return nil }
+            return PreviewObservation(token:record.token,name:record.app,identity:record.identity,frame:record.frame,
+                observedAt:time,usable:record.usable)
+        }
+        return PreviewScene.make(currentTopology:topology,observations:observations,profile:selected,mode:mode,bindings:bindings)
+    }
     func report() -> String {
         let matching=Matcher.assign(profile?.windows ?? [],allRecords.map(\.live),bindings:bindings)
         let screenLines=topology.displays.map { "\($0.name) [UUID \($0.id.prefix(8))…]: \(Int($0.frame.width))×\(Int($0.frame.height)) @ (\(Int($0.frame.x)),\(Int($0.frame.y)))" }
@@ -399,7 +410,7 @@ final class Engine {
             let owner=topology.owner(of:r.frame)?.name ?? "归属待确认"
             return "\(r.app) | \(owner) | (\(Int(r.frame.x)),\(Int(r.frame.y))) \(Int(r.frame.width))×\(Int(r.frame.height)) | \(candidates[r.token] != nil ? "已核对候选":r.usable && r.focused ? "核对中":"等待激活")"
         }
-        var lines: [String] = ["Window Layout Memory 0.1.0-preview.2 / build 2",status,
+        var lines: [String] = ["Window Layout Memory \(AppVersion.label)",status,
                  "辅助功能：\(AXIsProcessTrusted() ? "已授权":"未授权")；显示器：\(topology.displays.count)",
                  "布局：\(database.profiles.count)；当前基准：\(profile?.windows.count ?? 0)；候选：\(candidates.count)",
                  "当前组合：\(profile?.name ?? "未建立基准")；各组合包含独立的内屏和外屏窗口记录",
