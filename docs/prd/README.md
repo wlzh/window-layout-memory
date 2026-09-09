@@ -4,6 +4,7 @@
 
 | 目标版本 | 状态 | 文档 | 发布状态 |
 | --- | --- | --- | --- |
+| v0.3.0-preview.13 | 竖屏横向撑满 | [PRD](v0.3.0-preview.13/prd.md)、[设计](v0.3.0-preview.13/design.md)、[技术](v0.3.0-preview.13/dev.md)、[计划](v0.3.0-preview.13/plan.md) | build 20，证据见总览 |
 | v0.3.0-preview.12 | 铺满例外统一管理 | [PRD](v0.3.0-preview.12/prd.md)、[设计](v0.3.0-preview.12/design.md)、[技术](v0.3.0-preview.12/dev.md)、[计划](v0.3.0-preview.12/plan.md) | build 19，验收见总览 |
 | v0.3.0-preview.11 | 铺满结果保存、手动换屏优先 | [PRD](v0.3.0-preview.11/prd.md)、[设计](v0.3.0-preview.11/design.md)、[技术](v0.3.0-preview.11/dev.md)、[计划](v0.3.0-preview.11/plan.md) | build 17候选，验收见总览 |
 | v0.3.0-preview.10 | 恢复先对齐位置再调整尺寸，无成功记录 | [PRD](v0.3.0-preview.10/prd.md)、[设计](v0.3.0-preview.10/design.md)、[技术](v0.3.0-preview.10/dev.md)、[计划](v0.3.0-preview.10/plan.md) | build 16候选，实测未通过不发布 |

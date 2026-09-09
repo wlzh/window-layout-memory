@@ -251,17 +251,48 @@ func runEngineChecks() -> Int32 {
         enabled=true
         topology=Topology([Display(id:"portrait",name:"Portrait",frame:Rect(0,0,800,1200),primary:true)])
         stage.displayChanged();pump(3.3)
-        check("portrait display is never stage filled",fake.moves == offCount)
+        check("portrait default remains opt in",fake.moves == offCount)
         check("new combination never borrows inset",stage.database.preferences.stageInsets.count == 1)
+        fake.record.frame=Rect(220,170,500,600)
+        stage.setPreferences { $0.stageFill=false;$0.stagePortraitFill=true }
+        awaitCondition { fake.record.frame == Rect(100,170,700,600) }
+        check("portrait only mode preserves vertical geometry",fake.record.frame == Rect(100,170,700,600))
+        awaitCondition { !stage.busy && stage.profile?.windows.first?.frame == fake.record.frame }
+        check("portrait verified result persists in current combination",stage.profile?.windows.first?.frame == Rect(100,170,700,600))
+        let portraitDelegate=AppDelegate();portraitDelegate.engine=stage
+        let portraitMenu=NSMenu();portraitDelegate.menuWillOpen(portraitMenu)
+        check("portrait switch and child dependency work without landscape",find(portraitMenu,"竖屏横向撑满")?.state == .on && find(portraitMenu,"同时铺满子窗口")?.isEnabled == true)
+        pump(2.2)
+        pointerPoint=CGPoint(x:300,y:180);pointer=true;stage.pointerEvent(down:true)
+        fake.record.frame=Rect(220,240,500,440);pointerPoint=CGPoint(x:420,y:250);pointer=false;stage.pointerEvent(down:false)
+        awaitCondition { !stage.busy && stage.profile?.windows.first?.frame == Rect(100,240,700,440) }
+        check("portrait manual vertical change is preserved and saved",fake.record.frame == Rect(100,240,700,440) && stage.profile?.windows.first?.frame == fake.record.frame)
+        pump(2.2)
+        pointerPoint=CGPoint(x:100,y:400);pointer=true;stage.pointerEvent(down:true)
+        fake.record.frame=Rect(150,240,650,440);pointerPoint.x=150;pointer=false;stage.pointerEvent(down:false)
+        let portraitInsetKey=StageFill.insetKey(topology:topology,display:topology.displays[0])
+        awaitCondition { !stage.busy && stage.database.preferences.stageInsets[portraitInsetKey] == 150 }
+        check("portrait learns same inset without vertical expansion",stage.database.preferences.stageInsets[portraitInsetKey] == 150 && fake.record.frame == Rect(150,240,650,440))
+        let portraitCount=fake.moves
+        for _ in 0..<1000 { fake.emit() };pump(0.8)
+        check("portrait geometry events do not loop",fake.moves == portraitCount)
+        stage.setStageApplicationExclusion(bundle:fake.record.identity.bundle,name:fake.record.app,excluded:true)
+        awaitCondition { !stage.busy && stage.database.preferences.stageExcludedApplications[fake.record.identity.bundle] != nil }
+        fake.record.frame=Rect(230,200,500,500);fake.emit();pump(2.2)
+        check("portrait reuses application exclusions",fake.moves == portraitCount && fake.record.frame == Rect(230,200,500,500))
         stage.togglePause()
     } catch { failed+=1;print("FAIL ENGINE stage setup: \(error)") }
-    for mode in ["failed","wrongGeometry","locked","disabledRemember"] {
+    let baselineDisplay=display
+    for portraitMode in [false,true] {
+      let display=portraitMode ? Display(id:"portrait-save",name:"Portrait",frame:Rect(0,0,800,1200),primary:true):baselineDisplay
+      for mode in ["failed","wrongGeometry","locked","disabledRemember"] {
         do {
             topology=Topology([display]);trusted=true;pointer=false
             var localEnv=env;localEnv.stageManagerEnabled={true};localEnv.stageDisplay={$0}
             let fake=FixtureService();fake.failFill=mode == "failed";fake.wrongFill=mode == "wrongGeometry"
-            let store=LayoutStore(directory:root.appendingPathComponent("stage-save-\(mode)"))
-            var db=Database();db.preferences.stageFill=true
+            let store=LayoutStore(directory:root.appendingPathComponent("stage-save-\(portraitMode)-\(mode)"))
+            var db=Database();db.preferences.stageFill = !portraitMode;db.preferences.stagePortraitFill=portraitMode
+            let expected=portraitMode ? StageFill.portraitTarget(display:display,frame:fake.record.frame)!:Rect(100,0,1100,900)
             db.preferences.autoRemember=mode != "disabledRemember"
             db.profiles=[Profile(name:"Baseline",topology:topology,windows:[SavedWindow(identity:fake.record.identity,displayID:display.id,frame:fake.record.frame,sourceVisible:display.visible)])]
             db.profiles[0].locked=mode == "locked"
@@ -269,16 +300,17 @@ func runEngineChecks() -> Int32 {
             let engine=Engine(service:fake,store:store,environment:localEnv)
             awaitCondition { fake.moves > 0 };pump(0.4);awaitCondition { !engine.busy }
             if mode == "disabledRemember" {
-                check("verified fill save is independent of mouse auto remember",engine.profile?.windows.first?.frame == Rect(100,0,1100,900))
+                check("verified fill save independent of auto remember portrait=\(portraitMode)",engine.profile?.windows.first?.frame == expected)
                 let revision=engine.profile?.revision
                 fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element);pump(2.5)
-                check("unchanged filled target does not create repeated revisions",engine.profile?.revision == revision)
+                check("unchanged fill avoids revisions portrait=\(portraitMode)",engine.profile?.revision == revision)
             } else {
-                check("stage save \(mode) leaves baseline and history unchanged",(try? store.load()) == db)
+                check("stage save \(mode) preserves baseline portrait=\(portraitMode)",(try? store.load()) == db)
             }
             engine.togglePause()
         } catch {failed+=1;print("FAIL ENGINE stage save \(mode): \(error)")}
     }
+      }
     do {
         let external=Display(id:"external",name:"External",frame:Rect(-1600,0,1600,1000),primary:false)
         let portrait=Display(id:"portrait",name:"Portrait",frame:Rect(-800,0,800,1200),primary:false)
@@ -288,7 +320,8 @@ func runEngineChecks() -> Int32 {
             ("saved portrait restores original frame instead of filling internal",verticalPair,verticalPair,portrait,true,false,Rect(-700,40,500,600)),
             ("disabled auto restore fills current screen without crossing",pair,pair,external,false,false,Rect(100,0,1100,900)),
             ("unknown combination never borrows saved display",Topology([display]),pair,external,true,false,Rect(100,0,1100,900)),
-            ("ambiguous saved roles never choose a destination screen",pair,pair,external,true,true,Rect(100,0,1100,900))
+            ("ambiguous saved roles never choose a destination screen",pair,pair,external,true,true,Rect(100,0,1100,900)),
+            ("saved portrait with opt in preserves saved vertical geometry",verticalPair,verticalPair,portrait,true,false,Rect(-700,40,700,600))
         ]
         for (index,item) in cases.enumerated() {
             let (name,current,savedTopology,destination,autoRestore,ambiguous,expected)=item
@@ -297,6 +330,7 @@ func runEngineChecks() -> Int32 {
             let saved=SavedWindow(identity:fake.record.identity,displayID:destination.id,
                 frame:destination.id == "portrait" ? Rect(-700,40,500,600):Rect(-1500,40,900,600),sourceVisible:destination.visible)
             var db=Database();db.preferences.stageFill=true;db.preferences.autoRestore=autoRestore
+            db.preferences.stagePortraitFill=index == 5
             var windows=[saved]
             if ambiguous { windows.append(SavedWindow(identity:saved.identity,displayID:display.id,frame:Rect(30,40,500,300),sourceVisible:display.visible)) }
             db.profiles=[Profile(name:"Saved setup",topology:savedTopology,windows:windows)]
@@ -307,8 +341,8 @@ func runEngineChecks() -> Int32 {
             check(name,fake.record.frame == expected && fake.moves == 1)
             awaitCondition { !engine.busy }
             let changedProfile=engine.profile
-            if ambiguous || destination.frame.width <= destination.frame.height {
-                check("routing \(index) does not save ambiguous or portrait fill",(try? store.load()) == db)
+            if ambiguous || (destination.frame.width <= destination.frame.height && !db.preferences.stagePortraitFill) {
+                check("routing \(index) does not save ambiguous or disabled portrait fill",(try? store.load()) == db)
             } else {
                 check("routing \(index) records verified filled geometry",changedProfile?.windows.contains(where:{$0.frame == expected}) == true)
                 if index == 3 {
