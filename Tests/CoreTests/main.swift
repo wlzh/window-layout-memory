@@ -611,44 +611,19 @@ test("stage exclusion storage rejects empty duplicate oversized and excessive ru
         do { try db.validate();try expect(false) } catch CoreError.invalid { try expect(true) }
     }
 }
-test("native zoom never substitutes press or full screen actions") {
-    try expect(SizeFirstPlacement.nativeZoomAction(in:["AXPress","AXFullScreen","AXShowMenu"]) == nil)
-    try expect(SizeFirstPlacement.nativeZoomAction(in:["AXPress","AXZoomWindow"]) == "AXZoomWindow")
-    try expect(SizeFirstPlacement.nativeZoomAction(in:[]) == nil)
-}
-test("native zoom preparation requires readable geometry and room at current origin") {
-    let target=Rect(-1820,25,1820,1055),bounds=Rect(-1920,0,1920,1080)
-    try expect(!SizeFirstPlacement.fitsAtCurrentOrigin(Rect(-1639,102,1639,978),target:target,bounds:bounds))
-    try expect(SizeFirstPlacement.fitsAtCurrentOrigin(Rect(-1920,25,1920,1055),target:target,bounds:bounds))
-    try expect(!SizeFirstPlacement.fitsAtCurrentOrigin(nil,target:target,bounds:bounds))
-    try expect(!SizeFirstPlacement.fitsAtCurrentOrigin(Rect(0,25,1000,900),target:target,bounds:bounds))
-}
-test("native preparation is one shot bounded and cancellable") {
-    for mode in ["success","unsupported","noSpace","cancel","secondResizeIgnored","delayed"] {
-        let target=Rect(100,25,1100,875),bounds=Rect(0,0,1200,900)
-        var frame=Rect(300,100,900,800),events:[String]=[],jobs:[()->Void]=[]
-        var done=0,error:String?,resizeCount=0,readsAfterZoom=0,zoomed=false
-        SizeFirstPlacement.run(target:target,allowed:{ !(mode == "cancel" && zoomed) },resize:{
-            events.append("size");resizeCount+=1
-            if resizeCount == 2 && mode != "secondResizeIgnored" { frame.width=1100;frame.height=875 }
-            return true
-        },read:{
-            if zoomed { readsAfterZoom+=1 }
-            if mode == "delayed",readsAfterZoom == 3 { frame=Rect(0,25,1200,875) }
-            return frame
-        },position:{ events.append("position");frame=target;return true },prepare:{
-            events.append("zoom");zoomed=true
-            if mode == "unsupported" { return false }
-            if mode != "noSpace" && mode != "delayed" { frame=Rect(0,25,1200,875) }
-            return true
-        },prepared:{ SizeFirstPlacement.fitsAtCurrentOrigin($0,target:target,bounds:bounds) },schedule:{ jobs.append($0) },completion:{ _,message in done+=1;error=message })
-        var ticks=0
-        while !jobs.isEmpty && ticks < 20 { ticks+=1;jobs.removeFirst()() }
-        try expect(done == 1 && jobs.isEmpty && ticks <= 13)
-        try expect(events.filter { $0 == "zoom" }.count == 1)
-        if ["success","delayed"].contains(mode) {
-            try expect(events == ["size","zoom","size","position"] && frame == target && error == nil)
-        } else { try expect(!events.contains("position") && error != nil) }
+test("failed fill preserves origin without native maximize fallback") {
+    let target=Rect(-1820,-199,1820,1055),original=Rect(-1684,-191,1684,1047)
+    for mode in ["ignored","cancelled","unreadable"] {
+        var frame=original,jobs:[()->Void]=[],sizes=0,positions=0,completed=0,ticks=0
+        var error:String?
+        SizeFirstPlacement.run(target:target,allowed:{ mode != "cancelled" || sizes == 0 },resize:{
+            sizes+=1;return true
+        },read:{ mode == "unreadable" ? nil:frame },position:{
+            positions+=1;frame=target;return true
+        },schedule:{ jobs.append($0) },completion:{ _,message in completed+=1;error=message })
+        while !jobs.isEmpty && ticks < 10 { ticks+=1;jobs.removeFirst()() }
+        try expect(sizes == 1 && positions == 0 && frame == original)
+        try expect(completed == 1 && error != nil && jobs.isEmpty && ticks <= 4)
     }
 }
 test("stage app exclusions migrate persist and validate independently") {

@@ -1,5 +1,9 @@
 # 文档一致性审计
 
+## 2026-09-09 · build 12补充
+
+同步当前版本v0.3.0-preview.8 / build 12及原生最大化回退移除说明。README、使用/铺满/兼容性指南不再宣传该回退为当前功能，历史发行和PRD保留当时设计。新增preview.8版本四件套及发行说明，schema仍为1。验证及实际安装状态见状态/测试报告。
+
 ## 2026-09-09 · build 11补充
 
 当前v0.3.0-preview.7 / build 11。同步README、使用指南、铺满、预览、关于、兼容性、状态、测试、CHANGELOG、PRD索引；新增菜单完整导航、版本PRD/设计/技术/计划及发行说明。旧发行文档保留历史口径。当前元数据覆盖VERSION、RELEASE_CHANNEL、BUILD_NUMBER、Info.plist及AppVersion fallback，schema仍为1，无迁移和新依赖。
