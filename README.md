@@ -68,7 +68,7 @@ Do not commit real window titles, document paths, display serial numbers, screen
 
 ## Version and license
 
-Latest published preview: **0.3.0-preview.7**, build 11. See [release assets](https://github.com/wlzh/window-layout-memory/releases/tag/v0.3.0-preview.7), [CHANGELOG](CHANGELOG.md), and [current status](docs/STATUS.md). Physical AX acceptance still requires Accessibility authorization.
+Latest published preview: **0.3.0-preview.8**, build 12. See [release assets](https://github.com/wlzh/window-layout-memory/releases/tag/v0.3.0-preview.8), [CHANGELOG](CHANGELOG.md), and [current status](docs/STATUS.md). Physical AX acceptance still requires Accessibility authorization.
 
 Author: [X @wlzh](https://x.com/wlzh). Website: [869hr.uk](https://869hr.uk).
 
