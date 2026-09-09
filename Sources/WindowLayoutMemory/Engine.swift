@@ -177,6 +177,12 @@ final class Engine {
         for app in environment.applications() { enqueue(app.pid) }
     }
     private func enqueue(_ pid: pid_t) {
+        let trusted=environment.trusted()
+        if trusted != guardState.trusted {
+            guardState.trusted=trusted
+            displayChanged()
+            return
+        }
         guard pid != ProcessInfo.processInfo.processIdentifier, !guardState.paused,!guardState.sleeping,
               !guardState.settling,guardState.trusted, pending.count < 128 else { return }
         pending.insert(pid)
