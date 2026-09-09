@@ -569,6 +569,66 @@ test("size first placement gates positioning on verified size") {
         try expect((error == nil) == ["success","delayed"].contains(mode))
     }
 }
+test("known limitation: origin constrained resize is not proof of unsupported target size") {
+    let work=Rect(-1920,-199,1920,1055),target=Rect(-1820,-199,1820,1055)
+    let initial=Rect(-1672,-154,1672,1010)
+    var actual=initial,jobs:[()->Void]=[],positions=0,completions=0
+    var error:String?
+    func resize() -> Bool {
+        actual=Rect(actual.x,actual.y,min(target.width,work.x+work.width-actual.x),
+                    min(target.height,work.y+work.height-actual.y))
+        return true
+    }
+    SizeFirstPlacement.run(target:target,allowed:{true},resize:resize,read:{actual},position:{
+        positions+=1;actual=Rect(target.x,target.y,actual.width,actual.height);return true
+    },schedule:{jobs.append($0)},completion:{_,message in completions+=1;error=message})
+    var ticks=0
+    while !jobs.isEmpty && ticks < 10 { ticks+=1;jobs.removeFirst()() }
+    // Characterize the unresolved gate, not a successful real-window acceptance test.
+    try expect(completions == 1 && jobs.isEmpty && ticks <= 5)
+    try expect(error != nil && actual == initial && positions == 0)
+    actual=Rect(target.x,target.y,initial.width,initial.height)
+    try expect(resize() && actual == target)
+}
+test("position first placement handles screen clamping without native zoom") {
+    let target=Rect(-1820,-199,1820,1055)
+    var actual=Rect(-1672,-154,1672,1010),events:[String]=[],jobs:[()->Void]=[]
+    var completed=0,error:String?
+    SizeFirstPlacement.run(target:target,positionFirst:true,allowed:{true},resize:{
+        events.append("size")
+        actual=Rect(actual.x,actual.y,min(target.width,-actual.x),min(target.height,856-actual.y))
+        return true
+    },read:{actual},position:{
+        events.append("position");actual=Rect(target.x,target.y,actual.width,actual.height);return true
+    },schedule:{jobs.append($0)},completion:{_,message in completed+=1;error=message})
+    var ticks=0
+    while !jobs.isEmpty && ticks < 10 {ticks+=1;jobs.removeFirst()()}
+    try expect(completed == 1 && jobs.isEmpty && ticks <= 5)
+    try expect(events == ["position","size"] && actual == target && error == nil)
+}
+test("position first failures cancel without repeated movement or rollback") {
+    let target=Rect(100,24,1100,876)
+    for mode in ["positionError","sizeError","ignored","cancelAfterPosition","cancelFinal"] {
+        var actual=Rect(400,200,500,400),events:[String]=[],jobs:[()->Void]=[],completed=0,checks=0
+        var resultError:String?
+        SizeFirstPlacement.run(target:target,positionFirst:true,allowed:{
+            checks+=1
+            return !(mode == "cancelAfterPosition" && !events.isEmpty) && !(mode == "cancelFinal" && checks >= 5)
+        },resize:{
+            events.append("size")
+            if mode == "cancelFinal" {actual=target}
+            return mode != "sizeError"
+        },read:{actual},position:{
+            events.append("position");actual=Rect(target.x,target.y,actual.width,actual.height)
+            return mode != "positionError"
+        },schedule:{jobs.append($0)},completion:{_,error in completed+=1;resultError=error})
+        var ticks=0
+        while !jobs.isEmpty && ticks < 10 {ticks+=1;jobs.removeFirst()()}
+        try expect(completed == 1 && jobs.isEmpty && ticks <= 5 && resultError != nil)
+        try expect(events.filter {$0 == "position"}.count == 1)
+        try expect(events == (["positionError","cancelAfterPosition"].contains(mode) ? ["position"]:["position","size"]))
+    }
+}
 test("stage independent windows are not classified by count title or size") {
     try expect(StageWindowTraits().permits(includeChildren:false))
     try expect(StageWindowTraits().permits(includeChildren:true))
