@@ -1,6 +1,8 @@
 # 当前状态与版本口径
 
-核对日期：2026-09-09。当前工作版本为 **0.3.0-preview.5 / build 9**，schema 1。253项功能检查和5项文档校验器测试通过；核心行覆盖率99.27%，Engine行覆盖率82.19%。发行构建、签名、安装启动及升级前后布局文件不变核验通过。实机当前单屏、台前调度开启、子窗口选项关闭、留白100 pt；辅助功能未授权，真实图片窗行为尚待验证。GitHub Release正在准备。详情见[发行说明](releases/v0.3.0-preview.5.md)和[测试报告](TESTING.md)。历史章节不代表当前授权状态。
+核对日期：2026-09-09。当前工作版本为 **0.3.0-preview.5 / build 9**，schema 1。253项功能检查和5项文档校验器测试通过；核心行覆盖率99.27%，Engine行覆盖率82.19%。发行构建、签名、安装启动及升级前后布局文件不变核验通过。实机当前单屏、台前调度开启、子窗口选项关闭、留白100 pt；辅助功能未授权，真实图片窗行为尚待验证。详情见[发行说明](releases/v0.3.0-preview.5.md)和[测试报告](TESTING.md)。历史章节不代表当前授权状态。
+
+[GitHub预发行](https://github.com/wlzh/window-layout-memory/releases/tag/v0.3.0-preview.5)已发布，功能提交e6b8738。安装包与SHA256回下载、解压签名、与安装二进制比较均通过。[源码CI](https://github.com/wlzh/window-layout-memory/actions/runs/34302855014)和[tag CI](https://github.com/wlzh/window-layout-memory/actions/runs/34302874385)在本次记录时仍运行/排队，不标记通过。此后文档同步不重新签名。
 
 build 9：默认不铺满可识别标准子窗口，允许明确选择启用；类型未知、对话框和面板保持排除。提供临时窗口排除和精确标识持久排除。默认留白100 pt，不再单独提供设为100 pt菜单。保留build 8尺寸先核验再移动流程。
 
