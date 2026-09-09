@@ -46,6 +46,7 @@ final class Engine {
     var profile: Profile? { database.profiles.first { $0.topology.key == topology.key } }
     var allRecords: [AXRecord] { records.values.flatMap { $0 } }
     var canUndo: Bool { !undo.isEmpty && undoGeneration == guardState.generation }
+    var hasAccessibilityPermission: Bool { environment.trusted() }
     init(service: WindowService = AXService(), store: LayoutStore? = nil, environment: EngineEnvironment = EngineEnvironment()) {
         self.service=service;self.environment=environment;self.topology=environment.topology()
         self.store=store ?? LayoutStore(directory:FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("WindowLayoutMemory",isDirectory:true))

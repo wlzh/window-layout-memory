@@ -1,5 +1,13 @@
 # 文档一致性审计
 
+## 2026-09-09 · build 11补充
+
+当前v0.3.0-preview.7 / build 11。同步README、使用指南、铺满、预览、关于、兼容性、状态、测试、CHANGELOG、PRD索引；新增菜单完整导航、版本PRD/设计/技术/计划及发行说明。旧发行文档保留历史口径。当前元数据覆盖VERSION、RELEASE_CHANNEL、BUILD_NUMBER、Info.plist及AppVersion fallback，schema仍为1，无迁移和新依赖。
+
+文档校验：49份Markdown、133个本地链接，0错误；校验器5项测试通过。弹窗中的旧“铺满排除”入口也同步为“台前调度铺满 → 管理窗口例外”。具体自动化、安装和发布证据见[当前测试](TESTING.md)与[状态](STATUS.md)。旧版截图仅供外观参考，不当作本版版本截图。
+
+## 2026-09-08历史审计
+
 日期：2026-09-08。范围：根目录Markdown、docs下全部Markdown和图片引用、版本文件、Info.plist、AppVersion、脚本与CI，以及GitHub预发行列表和本机安装元数据。不是全功能实机验收，也不改动已安装应用。
 
 ## 修正清单
