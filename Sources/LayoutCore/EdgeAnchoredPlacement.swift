@@ -44,9 +44,6 @@ public enum EdgeAnchoredPlacement {
             guard !needsFirst || (allowed() && first(next)) else {
                 completion(read(),"边缘调整写入失败，已停止");return
             }
-            guard !needsSecond || (allowed() && second(next)) else {
-                completion(read(),"边缘调整中止，可能已部分调整；不回滚用户操作");return
-            }
             func verify(_ remaining:Int) {
                 guard allowed() else { completion(read(),"边缘调整已取消，未继续扩展");return }
                 let actual=read()
@@ -54,10 +51,43 @@ public enum EdgeAnchoredPlacement {
                     previous=next;index+=1
                     if index == steps.count { completion(actual,nil) }
                     else { schedule(advance) }
-                } else if remaining > 0 { schedule { verify(remaining-1) } }
+                } else if remaining > 0 {
+                    // Some clients acknowledge a position before their resize constraint
+                    // catches up. Retry only this step's size, never advance its origin.
+                    let retrySize=leadingExpansion && actual.map { frame in
+                        abs(frame.x-next.x)<=2 && abs(frame.y-next.y)<=2 &&
+                        frame.width >= min(previous.width,next.width)-2 && frame.width <= max(previous.width,next.width)+2 &&
+                        frame.height >= min(previous.height,next.height)-2 && frame.height <= max(previous.height,next.height)+2
+                    } == true
+                    schedule {
+                        if retrySize {
+                            if allowed(),read()?.close(to:next,tolerance:2) == true {verify(remaining-1);return}
+                            guard allowed(),let actual,read()?.close(to:actual,tolerance:2) == true,resize(next) else {
+                                completion(read(),"边缘尺寸重试已取消或失败");return
+                            }
+                        }
+                        verify(remaining-1)
+                    }
+                }
                 else { completion(actual,"边缘调整未达到目标，已停止；未使用原生最大化") }
             }
-            verify(3)
+            var intermediate=previous
+            if leadingExpansion {intermediate.x=next.x;intermediate.y=next.y}
+            else {intermediate.width=next.width;intermediate.height=next.height}
+            func verifyFirst(_ remaining:Int) {
+                guard allowed() else {completion(read(),"边缘调整已取消，未继续扩展");return}
+                let actual=read()
+                if !needsFirst || actual?.close(to:intermediate,tolerance:2) == true || actual?.close(to:next,tolerance:2) == true {
+                    guard !needsSecond || (allowed() && second(next)) else {
+                        completion(read(),"边缘调整中止，可能已部分调整；不回滚用户操作");return
+                    }
+                    verify(3)
+                } else if remaining > 0 {schedule {verifyFirst(remaining-1)}}
+                else {completion(actual,"边缘首个写入未到位，未继续调整")}
+            }
+            // Let asynchronous native window geometry settle before the paired write.
+            if needsFirst && needsSecond {schedule {verifyFirst(3)}}
+            else {verifyFirst(3)}
         }
         advance()
     }

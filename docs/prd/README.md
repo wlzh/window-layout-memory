@@ -4,7 +4,7 @@
 
 | 目标版本 | 状态 | 文档 | 发布状态 |
 | --- | --- | --- | --- |
-| v0.3.0-preview.9 | 已对齐边保持、授权事件恢复 | [PRD](v0.3.0-preview.9/prd.md)、[设计](v0.3.0-preview.9/design.md)、[技术](v0.3.0-preview.9/dev.md)、[计划](v0.3.0-preview.9/plan.md) | build 13；实测见总览 |
+| v0.3.0-preview.9 | 已对齐边保持、授权事件恢复 | [PRD](v0.3.0-preview.9/prd.md)、[设计](v0.3.0-preview.9/design.md)、[技术](v0.3.0-preview.9/dev.md)、[计划](v0.3.0-preview.9/plan.md) | build 14候选；实测见总览 |
 | v0.3.0-preview.8 | 移除吞掉留白的原生最大化回退 | [PRD](v0.3.0-preview.8/prd.md)、[设计](v0.3.0-preview.8/design.md)、[技术](v0.3.0-preview.8/dev.md)、[计划](v0.3.0-preview.8/plan.md) | build 12；验收见总览 |
 | v0.3.0-preview.7 | 菜单分组与导航一致性 | [PRD](v0.3.0-preview.7/prd.md)、[设计](v0.3.0-preview.7/design.md)、[技术](v0.3.0-preview.7/dev.md)、[计划](v0.3.0-preview.7/plan.md) | build 11；当前验证见总览 |
 | v0.3.0-preview.6 | 持久应用例外、同屏缩放回退 | [PRD](v0.3.0-preview.6/prd.md)、[设计](v0.3.0-preview.6/design.md)、[技术](v0.3.0-preview.6/dev.md)、[计划](v0.3.0-preview.6/plan.md) | build 10；当前验证见总览 |

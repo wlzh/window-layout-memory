@@ -710,6 +710,23 @@ test("edge runner accepts delayed readback and already aligned geometry without 
         if initial == target {try expect(writes == 0)}
     }
 }
+test("edge step coordinates asynchronous position and bounded ignored size retries") {
+    for mode in ["recover","stuck","cancelRetry"] {
+        let initial=Rect(200,100,800,700),target=Rect(184,84,816,716)
+        var frame=initial,jobs:[()->Void]=[],positions=0,sizes=0,done=0,error:String?,ticks=0
+        EdgeAnchoredPlacement.run(initial:initial,target:target,allowed:{ !(mode == "cancelRetry" && sizes>0) },read:{frame},resize:{n in
+            sizes+=1
+            if sizes>1 && mode == "recover" {frame.width=n.width;frame.height=n.height}
+            return true
+        },position:{n in
+            positions+=1;jobs.append {frame.x=n.x;frame.y=n.y};return true
+        },schedule:{jobs.append($0)},completion:{_,e in done+=1;error=e})
+        while !jobs.isEmpty && ticks<20 {ticks+=1;jobs.removeFirst()()}
+        try expect(done == 1 && jobs.isEmpty && ticks<20 && positions == 1 && sizes<=4)
+        if mode == "recover" {try expect(error == nil && frame == target && sizes == 2)}
+        else {try expect(error != nil && frame.width == initial.width)}
+    }
+}
 print("CORE_TESTS passed=\(passed) failed=\(failed) assertions=\(assertions)")
 print("Coverage percentage: NOT MEASURED. AX, UI, Stage Manager, hardware and performance tests: NOT RUN.")
 exit(failed==0 ? 0:1)
