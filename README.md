@@ -4,7 +4,7 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 面向 macOS 的窗口布局记忆应用。目标是保留用户在单屏、双屏、多屏环境下分别调整好的窗口大小、位置与显示器归属，在显示器切换和重新登录后恢复，不让系统临时重排覆盖用户偏好。
 
-**v0.3.0-preview.11 / build 17：开发预览，不是稳定版。** 原生[关于窗口](docs/ABOUT.md)集中展示版本、作者、网站、GitHub、文档及MIT协议。包含[台前调度横屏自动铺满](docs/STAGE_FILL.md)：默认关闭，激活横屏前台窗口后避开菜单栏/Dock，左侧默认100 pt且可通过左边缘拖动调整。按完整显示器组合和显示器ID记忆留白，铺满成功后更新当前组合的窗口记录。[只读布局预览](docs/PREVIEW.md)关闭释放资源。尚未完整满足全部实机门禁。
+**v0.3.0-preview.12 / build 19：开发预览，不是稳定版。** 原生[关于窗口](docs/ABOUT.md)集中展示版本、作者、网站、GitHub、文档及MIT协议。包含[台前调度横屏自动铺满](docs/STAGE_FILL.md)：默认关闭，激活横屏前台窗口后避开菜单栏/Dock，左侧默认100 pt且可通过左边缘拖动调整。按完整显示器组合和显示器ID记忆留白，铺满成功后更新当前组合的窗口记录。[只读布局预览](docs/PREVIEW.md)关闭释放资源。尚未完整满足全部实机门禁。
 
 ![布局预览，合成测试数据，不是真实用户窗口](docs/assets/layout-preview.png)
 
@@ -12,7 +12,7 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 build 17新增：自动铺满成功后更新当前组合下该窗口记录，明确鼠标换屏优先于旧归属；失败、锁定和歧义不覆盖。旧值保留在历史基准中，详见[铺满说明](docs/STAGE_FILL.md)。
 
-build 11将菜单整理为12个顶层入口与四个功能组，保留常用操作；完整路径和作用域见[菜单导航](docs/MENU.md)。布局、100 pt默认值与持久偏好不变。本版[发行说明](docs/releases/v0.3.0-preview.11.md)。
+build 19将应用和窗口例外合并至“台前调度铺满 → 铺满例外”原生菜单列表，不弹管理窗口。应用级永久保存，窗口级区分临时和永久；保留旧规则、文件选择及未运行应用撤销。完整路径见[菜单导航](docs/MENU.md)，本版[发行说明](docs/releases/v0.3.0-preview.12.md)。
 
 build 16按最新要求恢复先对齐左侧留白、再调整目标尺寸，不再记录或判断窗口成功历史。尺寸失败停止并报告，不使用原生最大化、鼠标模拟或自动回滚。应用尺寸限制仍可能导致移动后未铺满，不保证零抖动。普通布局和持久偏好不变。候选实测与发布状态见[状态总览](docs/STATUS.md)。
 

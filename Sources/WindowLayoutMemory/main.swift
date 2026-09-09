@@ -4,6 +4,12 @@ import ServiceManagement
 import LayoutCore
 import UniformTypeIdentifiers
 
+struct ExceptionSection {
+    let title: String
+    let detail: String
+    let menu: NSMenu
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var engine: Engine!
     var item: NSStatusItem!
@@ -12,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var closeObserver: NSObjectProtocol?
     var preview: LayoutPreviewController?
     var about: AboutWindowController?
+    var exceptionSections: [ExceptionSection]=[]
     func applicationDidFinishLaunching(_ notification: Notification) {
         engine=Engine()
         item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
@@ -52,21 +59,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         children.indentationLevel=1;children.state=engine.database.preferences.stageFillChildren ? .on:.off
         stage.addItem(.separator())
         let exceptions=NSMenu()
+        let windowActions=NSMenu()
         if let record=engine.stageMenuRecord {
-            let temporary=add(stage,"当前窗口暂不铺满",#selector(toggleStageWindow(_:)),enabled:!engine.busy)
+            add(windowActions,"目标应用：\(record.app)",nil)
+            let temporary=add(windowActions,"当前窗口暂不铺满",#selector(toggleStageWindow(_:)),enabled:!engine.busy)
             temporary.toolTip="仅本次运行中的此窗口，不影响同应用其它窗口"
             temporary.representedObject=record.token
             temporary.state=engine.stageSessionExclusions.contains(record.token) ? .on:.off
             if let rule=engine.stageRule(for:record) {
-                let entry=add(stage,"按标识排除此窗口…",#selector(toggleStageKind(_:)),enabled:!engine.busy)
+                let entry=add(windowActions,"永久排除此类窗口…",#selector(toggleStageKind(_:)),enabled:!engine.busy)
                 entry.representedObject=rule
                 entry.state=engine.database.preferences.stageExcludedKinds.contains(rule) ? .on:.off
             } else {
-                add(stage,"按标识排除此窗口…",nil).toolTip="无可靠标识，仅可临时排除当前窗口"
+                add(windowActions,"无法永久排除：应用未提供可靠窗口标识",nil)
             }
         } else {
-            add(stage,"当前窗口暂不铺满",nil).toolTip="请先激活目标窗口并等待核对"
-            add(stage,"按标识排除此窗口…",nil).toolTip="请先激活目标窗口并等待核对"
+            let reason = !engine.hasAccessibilityPermission ? "需要辅助功能授权" : engine.guardState.paused ? "自动操作已暂停" : engine.guardState.settling ? "显示配置仍在核对" : "请激活目标窗口并等待核对后重新打开菜单"
+            add(windowActions,"无可操作目标：\(reason)",nil)
         }
         if !engine.database.preferences.stageExcludedKinds.isEmpty {
             for rule in engine.database.preferences.stageExcludedKinds {
@@ -75,7 +84,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 entry.representedObject=rule
             }
         }
-        if exceptions.items.isEmpty { add(exceptions,"尚无持久窗口例外",nil) }
+        for token in engine.stageSessionExclusions.sorted() {
+            let name=engine.allRecords.first(where:{$0.token == token})?.app ?? "已不可见窗口"
+            let entry=add(exceptions,"临时 · \(name) · \(token)",#selector(toggleStageWindow(_:)),enabled:!engine.busy && engine.allRecords.contains(where:{$0.token == token}))
+            entry.representedObject=token;entry.state = .on
+        }
+        if exceptions.items.isEmpty { add(exceptions,"尚未添加窗口例外。可在上方为当前窗口添加。",nil) }
         let apps=NSMenu()
         var listed=Set<String>()
         let running=NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
@@ -110,8 +124,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         apps.addItem(.separator())
         add(apps,"从文件选择应用…",#selector(chooseStageApp),enabled:!engine.busy)
-        let appItem=add(stage,"应用例外",nil);appItem.submenu=apps;appItem.isEnabled=true
-        let exceptionItem=add(stage,"管理窗口例外",nil);exceptionItem.submenu=exceptions;exceptionItem.isEnabled=true
+        for entry in exceptions.items where entry.representedObject is StageWindowRule { entry.title="永久 · " + entry.title }
+        exceptionSections=[
+            ExceptionSection(title:"应用级",detail:"勾选后该应用的所有窗口不自动铺满。永久保存，重启后保留。",menu:apps),
+            ExceptionSection(title:"当前窗口",detail:"临时仅针对本次运行中的窗口；永久按应用与窗口标识匹配，可能影响同标识窗口。",menu:windowActions),
+            ExceptionSection(title:"已添加的窗口例外",detail:"点击已勾选的规则取消排除。应用级例外显示在上方，不在这里重复列出。",menu:exceptions)]
+        for section in exceptionSections { section.menu.autoenablesItems=false }
+        let unified=NSMenu()
+        for (index,section) in exceptionSections.enumerated() {
+            if index > 0 { unified.addItem(.separator()) }
+            add(unified,section.title == "应用级" ? "应用级 · 永久保存":section.title,nil).toolTip=section.detail
+            for entry in section.menu.items { unified.addItem(entry.copy() as! NSMenuItem) }
+        }
+        let exceptionItem=add(stage,"铺满例外",nil);exceptionItem.submenu=unified;exceptionItem.isEnabled=true
         let login=add(settings,"登录时启动",#selector(toggleLogin)); login.state=SMAppService.mainApp.status == .enabled ? .on:.off
         automation.addItem(.separator())
         let exclude=NSMenu()
@@ -222,7 +247,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func toggleStageKind(_ sender:NSMenuItem) {
         guard let rule=sender.representedObject as? StageWindowRule else { return }
         if engine.database.preferences.stageExcludedKinds.contains(rule) { removeStageKind(sender);return }
-        guard confirm("永久排除此应用中相同AX标识的窗口：\(rule.bundle) / \(rule.identifier)。应用可能复用标识，这也会排除使用相同标识的主窗口；不按标题或图片内容猜测。可从台前调度铺满 → 管理窗口例外撤销。") else { return }
+        guard !engine.busy,let record=engine.stageMenuRecord,engine.stageRule(for:record) == rule else { return }
+        guard confirm("永久排除此应用中相同AX标识的窗口：\(rule.bundle) / \(rule.identifier)。应用可能复用标识，这也会排除使用相同标识的主窗口；不按标题或图片内容猜测。可从台前调度铺满 → 铺满例外撤销。") else { return }
         engine.setPreferences { if $0.stageExcludedKinds.count < 200 { $0.stageExcludedKinds.append(rule) } }
     }
     @objc func removeStageKind(_ sender:NSMenuItem) {
