@@ -4,7 +4,7 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 面向 macOS 的窗口布局记忆应用。目标是保留用户在单屏、双屏、多屏环境下分别调整好的窗口大小、位置与显示器归属，在显示器切换和重新登录后恢复，不让系统临时重排覆盖用户偏好。
 
-**v0.3.0-preview.6 / build 10（工作版）：开发预览，不是稳定版。** 新增原生[关于窗口](docs/ABOUT.md)，集中展示版本、作者、网站、GitHub、文档及MIT协议，适配明暗主题，关闭释放资源。包含[台前调度横屏自动铺满](docs/STAGE_FILL.md)：默认关闭，激活横屏前台窗口后避开菜单栏/Dock铺满，左侧默认100 pt且可通过左边缘拖动调整。按完整显示器组合和显示器ID记忆留白，不覆盖原布局。包含[只读布局预览](docs/PREVIEW.md)，关闭释放预览资源，不新增周期性扫描。尚未完整满足全部实机门禁。
+**v0.3.0-preview.6 / build 10：开发预览，不是稳定版。** 新增原生[关于窗口](docs/ABOUT.md)，集中展示版本、作者、网站、GitHub、文档及MIT协议，适配明暗主题，关闭释放资源。包含[台前调度横屏自动铺满](docs/STAGE_FILL.md)：默认关闭，激活横屏前台窗口后避开菜单栏/Dock铺满，左侧默认100 pt且可通过左边缘拖动调整。按完整显示器组合和显示器ID记忆留白，不覆盖原布局。包含[只读布局预览](docs/PREVIEW.md)，关闭释放预览资源，不新增周期性扫描。尚未完整满足全部实机门禁。
 
 ![布局预览，合成测试数据，不是真实用户窗口](docs/assets/layout-preview.png)
 
@@ -66,7 +66,7 @@ Do not commit real window titles, document paths, display serial numbers, screen
 
 ## Version and license
 
-Latest published preview: **0.3.0-preview.5**, build 9. See [release assets](https://github.com/wlzh/window-layout-memory/releases/tag/v0.3.0-preview.5), [CHANGELOG](CHANGELOG.md), and [current status](docs/STATUS.md). Physical AX acceptance still requires Accessibility authorization.
+Latest published preview: **0.3.0-preview.6**, build 10. See [release assets](https://github.com/wlzh/window-layout-memory/releases/tag/v0.3.0-preview.6), [CHANGELOG](CHANGELOG.md), and [current status](docs/STATUS.md). Physical AX acceptance still requires Accessibility authorization.
 
 Author: [X @wlzh](https://x.com/wlzh). Website: [869hr.uk](https://869hr.uk).
 
