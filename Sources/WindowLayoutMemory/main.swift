@@ -45,6 +45,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let remember=add(menu,"自动保存手动拖动后的布局",#selector(toggleRemember)); remember.state=engine.database.preferences.autoRemember ? .on:.off
         let auto=add(menu,"激活/登录/切屏后自动恢复",#selector(toggleAuto)); auto.state=engine.database.preferences.autoRestore ? .on:.off
         let fill=add(menu,"台前调度：横屏自动铺满（拖左边缘调整留白）",#selector(toggleStageFill));fill.state=engine.database.preferences.stageFill ? .on:.off
+        let children=add(menu,"同时铺满子窗口",#selector(toggleStageChildren),enabled:engine.database.preferences.stageFill && !engine.busy)
+        children.indentationLevel=1;children.state=engine.database.preferences.stageFillChildren ? .on:.off
+        let exceptions=NSMenu()
+        if let record=engine.stageMenuRecord {
+            let temporary=add(exceptions,"当前窗口不铺满（本次运行）",#selector(toggleStageWindow(_:)),enabled:!engine.busy)
+            temporary.representedObject=record.token
+            temporary.state=engine.stageSessionExclusions.contains(record.token) ? .on:.off
+            if let rule=engine.stageRule(for:record) {
+                let entry=add(exceptions,"排除此标识的窗口…",#selector(toggleStageKind(_:)),enabled:!engine.busy)
+                entry.representedObject=rule
+                entry.state=engine.database.preferences.stageExcludedKinds.contains(rule) ? .on:.off
+            } else {
+                add(exceptions,"无可靠标识，仅可临时排除当前窗口",nil)
+            }
+        } else { add(exceptions,"请先激活目标窗口并等待核对",nil) }
+        if !engine.database.preferences.stageExcludedKinds.isEmpty {
+            exceptions.addItem(.separator())
+            for rule in engine.database.preferences.stageExcludedKinds {
+                let entry=add(exceptions,"取消排除：\(rule.bundle) / \(rule.identifier)",#selector(removeStageKind(_:)),enabled:!engine.busy)
+                entry.representedObject=rule
+            }
+        }
+        let exceptionItem=add(menu,"铺满排除",nil);exceptionItem.submenu=exceptions;exceptionItem.isEnabled=true
         let login=add(menu,"登录时启动",#selector(toggleLogin)); login.state=SMAppService.mainApp.status == .enabled ? .on:.off
         add(menu,engine.guardState.paused ? "继续自动操作":"暂停自动操作",#selector(pause))
         add(menu,"取消待恢复并暂停",#selector(cancelRestores))
@@ -125,8 +148,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func refresh() { engine.displayChanged() }
     @objc func toggleObserve() { engine.setPreferences { $0.autoObserve.toggle() } }
     @objc func toggleStageFill() {
-        if !engine.database.preferences.stageFill && !confirm("仅台前调度开启时，自动将横屏前台窗口铺满可用工作区。左侧默认留白200 pt；拖左边缘后记住新留白。原布局基准不变，竖屏不处理。关闭后停止铺满，不立即移动窗口。") { return }
+        if !engine.database.preferences.stageFill && !confirm("仅台前调度开启时，自动将横屏前台窗口铺满可用工作区。左侧默认留白100 pt；拖左边缘后记住新留白。原布局基准不变，竖屏不处理。关闭后停止铺满，不立即移动窗口。") { return }
         engine.setPreferences { $0.stageFill.toggle() }
+    }
+    @objc func toggleStageChildren() { engine.setPreferences { $0.stageFillChildren.toggle() } }
+    @objc func toggleStageWindow(_ sender:NSMenuItem) {
+        guard let token=sender.representedObject as? String else { return }
+        engine.toggleStageSessionExclusion(token)
+    }
+    @objc func toggleStageKind(_ sender:NSMenuItem) {
+        guard let rule=sender.representedObject as? StageWindowRule else { return }
+        if engine.database.preferences.stageExcludedKinds.contains(rule) { removeStageKind(sender);return }
+        guard confirm("永久排除此应用中相同AX标识的窗口：\(rule.bundle) / \(rule.identifier)。应用可能复用标识，这也会排除使用相同标识的主窗口；不按标题或图片内容猜测。可从铺满排除菜单撤销。") else { return }
+        engine.setPreferences { if $0.stageExcludedKinds.count < 200 { $0.stageExcludedKinds.append(rule) } }
+    }
+    @objc func removeStageKind(_ sender:NSMenuItem) {
+        guard let rule=sender.representedObject as? StageWindowRule else { return }
+        engine.setPreferences { $0.stageExcludedKinds.removeAll { $0 == rule } }
     }
     @objc func toggleRemember() {
         if !engine.database.preferences.autoRemember && !confirm("自动保存前台窗口的鼠标拖动/缩放结果，包含新显示器组合。系统自动挤压或无鼠标证据的变化不会覆盖基准。键盘调整仍需手动保存。") { return }

@@ -95,22 +95,27 @@ public struct Preferences: Codable, Equatable {
     public var autoObserve = true, autoRestore = false
     public var autoRemember = true
     public var stageFill = false
+    public var stageFillChildren = false
+    public var stageExcludedKinds: [StageWindowRule] = []
     public var stageInsets: [String:Double] = [:]
     public var excludedBundles: [String] = []
     public init() {}
-    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stageInsets }
+    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stageInsets, stageFillChildren, stageExcludedKinds }
     public init(from decoder: Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         autoObserve=try c.decodeIfPresent(Bool.self,forKey:.autoObserve) ?? true
         autoRestore=try c.decodeIfPresent(Bool.self,forKey:.autoRestore) ?? false
         autoRemember=try c.decodeIfPresent(Bool.self,forKey:.autoRemember) ?? false
         stageFill=try c.decodeIfPresent(Bool.self,forKey:.stageFill) ?? false
+        stageFillChildren=try c.decodeIfPresent(Bool.self,forKey:.stageFillChildren) ?? false
+        stageExcludedKinds=try c.decodeIfPresent([StageWindowRule].self,forKey:.stageExcludedKinds) ?? []
         stageInsets=try c.decodeIfPresent([String:Double].self,forKey:.stageInsets) ?? [:]
         excludedBundles=try c.decodeIfPresent([String].self,forKey:.excludedBundles) ?? []
     }
 }
 
 public enum StageFill {
+    public static let defaultInset: Double = 100
     public static func workArea(_ display: Display, dockHidden: Bool?, orientation: String) -> Display {
         guard dockHidden == true else { return display }
         var result=display
@@ -125,7 +130,7 @@ public enum StageFill {
     public static func insetKey(topology: Topology, display: Display) -> String {
         String(data:try! JSONEncoder().encode([topology.key,display.id]),encoding:.utf8)!
     }
-    public static func target(display: Display, inset: Double = 200) -> Rect? {
+    public static func target(display: Display, inset: Double = defaultInset) -> Rect? {
         guard display.frame.valid,display.visible.valid,!display.mirrored,
               display.frame.width > display.frame.height,inset.isFinite,inset >= 0,
               display.visible.width >= 320 else { return nil }
@@ -222,6 +227,11 @@ public struct Database: Codable, Equatable {
     public init() {}
     public func validate() throws {
         guard schemaVersion == 1 else { throw CoreError.invalid("Unsupported schema") }
+        guard preferences.stageExcludedKinds.count <= 200,
+              preferences.stageExcludedKinds.allSatisfy(\.valid),
+              Set(preferences.stageExcludedKinds).count == preferences.stageExcludedKinds.count else {
+            throw CoreError.invalid("Invalid stage window exclusions")
+        }
         guard preferences.stageInsets.count <= 1600,
               preferences.stageInsets.allSatisfy({ !$0.key.isEmpty && $0.key.utf8.count <= 16384 && $0.value.isFinite && $0.value >= 0 && $0.value < 1_000_000 }) else {
             throw CoreError.invalid("Invalid stage inset preferences")

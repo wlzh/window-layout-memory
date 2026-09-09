@@ -10,6 +10,8 @@ private final class FixtureService: WindowService {
         element:AXUIElementCreateApplication(424242),identity:WindowIdentity(bundle:"test.fixture",title:"Synthetic"),
         frame:Rect(20,40,400,300),focused:true,usable:true)
     var scans=0, moves=0
+    var holdFill=false, heldFill: (() -> Void)?
+    var omitWindow=false
     var hold=false
     var held: [(ScanResult)->Void]=[]
     func detach(_ pid: pid_t) {}
@@ -17,13 +19,17 @@ private final class FixtureService: WindowService {
         guard allowed() else { completion(ScanResult(pid:pid,records:[],error:"cancelled"));return }
         scans+=1
         if hold { held.append(completion) }
-        else { completion(ScanResult(pid:pid,records:[record],error:nil)) }
+        else { completion(ScanResult(pid:pid,records:omitWindow ? []:[record],error:nil)) }
     }
     func move(_ record: AXRecord,to target: Rect,allowed: @escaping ()->Bool,completion: @escaping (Rect?,String?)->Void) {
         guard allowed() else { completion(nil,"cancelled");return }
         moves+=1;self.record.frame=target;completion(target,nil)
     }
     func emit() { onEvent?(record.pid,kAXWindowMovedNotification,record.element) }
+    func fill(_ record: AXRecord,to target: Rect,allowed: @escaping ()->Bool,completion: @escaping (Rect?,String?)->Void) {
+        if holdFill { heldFill={ [weak self] in self?.move(record,to:target,allowed:allowed,completion:completion) } }
+        else { move(record,to:target,allowed:allowed,completion:completion) }
+    }
 }
 
 func runEngineChecks() -> Int32 {
@@ -179,6 +185,7 @@ func runEngineChecks() -> Int32 {
         let window=SavedWindow(identity:service.record.identity,displayID:display.id,frame:Rect(30,40,500,300),sourceVisible:display.visible)
         var db=Database();db.profiles=[Profile(name:"Original",topology:topology,windows:[window])]
         db.preferences.stageFill=true;db.preferences.autoRestore=true
+        db.preferences.stageInsets[StageFill.insetKey(topology:topology,display:display)]=200
         try stageStore.save(db)
         let fake=FixtureService(),stage=Engine(service:fake,store:stageStore,environment:stageEnv)
         awaitCondition { fake.moves == 1 }
@@ -239,11 +246,11 @@ func runEngineChecks() -> Int32 {
         let portrait=Display(id:"portrait",name:"Portrait",frame:Rect(-800,0,800,1200),primary:false)
         let pair=Topology([display,external]),verticalPair=Topology([display,portrait])
         let cases:[(String,Topology,Topology,Display,Bool,Bool,Rect)] = [
-            ("reconnect restores saved external display before filling",pair,pair,external,true,false,Rect(-1400,0,1400,1000)),
+            ("reconnect restores saved external display before filling",pair,pair,external,true,false,Rect(-1500,0,1500,1000)),
             ("saved portrait restores original frame instead of filling internal",verticalPair,verticalPair,portrait,true,false,Rect(-700,40,500,600)),
-            ("disabled auto restore fills current screen without crossing",pair,pair,external,false,false,Rect(200,0,1000,900)),
-            ("unknown combination never borrows saved display",Topology([display]),pair,external,true,false,Rect(200,0,1000,900)),
-            ("ambiguous saved roles never choose a destination screen",pair,pair,external,true,true,Rect(200,0,1000,900))
+            ("disabled auto restore fills current screen without crossing",pair,pair,external,false,false,Rect(100,0,1100,900)),
+            ("unknown combination never borrows saved display",Topology([display]),pair,external,true,false,Rect(100,0,1100,900)),
+            ("ambiguous saved roles never choose a destination screen",pair,pair,external,true,true,Rect(100,0,1100,900))
         ]
         for (index,item) in cases.enumerated() {
             let (name,current,savedTopology,destination,autoRestore,ambiguous,expected)=item
@@ -283,9 +290,73 @@ func runEngineChecks() -> Int32 {
         var routedEnv=env;routedEnv.stageManagerEnabled={ true };routedEnv.stageDisplay={ $0 }
         let routed=Engine(service:fake,store:store,environment:routedEnv)
         awaitCondition { fake.moves > 0 }
-        check("window stranded on portrait returns to saved landscape",fake.record.frame == Rect(200,0,1000,900))
+        check("window stranded on portrait returns to saved landscape",fake.record.frame == Rect(100,0,1100,900))
         routed.togglePause()
     } catch { failed+=1;print("FAIL ENGINE destination routing: \(error)") }
+    do {
+        topology=Topology([display]);trusted=true;pointer=false
+        let fake=FixtureService(),store=LayoutStore(directory:root.appendingPathComponent("child-policy"))
+        fake.record.stageTraits=StageWindowTraits(parentRole:"AXWindow")
+        fake.record.identity.identifier="viewer"
+        let original=fake.record.frame
+        var db=Database();db.preferences.stageFill=true;db.preferences.autoRestore=true
+        db.profiles=[Profile(name:"Do not overwrite",topology:topology,windows:[SavedWindow(identity:fake.record.identity,displayID:display.id,frame:Rect(40,50,600,400),sourceVisible:display.visible)])]
+        try store.save(db)
+        var enabled=true,childEnv=env
+        childEnv.stageManagerEnabled={ enabled };childEnv.stageDisplay={ $0 }
+        let child=Engine(service:fake,store:store,environment:childEnv)
+        pump(2.2)
+        check("child default blocks fill and automatic restore fallback",fake.moves == 0 && fake.record.frame == original)
+        check("child default does not learn candidate or mutate baseline",child.candidates.isEmpty && child.database.profiles == db.profiles)
+        let delegate=AppDelegate();delegate.engine=child
+        let menu=NSMenu();menu.autoenablesItems=false;delegate.menuWillOpen(menu)
+        let option=menu.items.first { $0.title == "同时铺满子窗口" }
+        check("child menu is indented unchecked and enabled under master",option?.state == .off && option?.indentationLevel == 1 && option?.isEnabled == true)
+        check("redundant 100 point menu removed",!menu.items.contains { $0.title.contains("留白设为100") })
+        let exclusions=menu.items.first { $0.title == "铺满排除" }?.submenu
+        check("identified window offers persistent and session exclusion",exclusions?.items.contains { $0.title == "排除此标识的窗口…" } == true && exclusions?.items.contains { $0.title == "当前窗口不铺满（本次运行）" } == true)
+        child.setPreferences { $0.stageFillChildren=true };awaitCondition { fake.moves > 0 }
+        check("opt in allows standard child fill",fake.record.frame == Rect(100,0,1100,900))
+        let rule=child.stageRule(for:fake.record)!
+        child.setPreferences { $0.stageExcludedKinds=[rule] };pump(2.2)
+        let before=fake.moves
+        fake.record.frame=original;fake.emit();pump(2.2)
+        check("explicit exclusion overrides child opt in without restore fallback",fake.moves == before && fake.record.frame == original)
+        let reloaded=try store.load()
+        check("persistent exclusions survive restart read without profile changes",reloaded.preferences.stageExcludedKinds == [rule] && child.database.profiles == db.profiles)
+        child.setPreferences { $0.stageExcludedKinds=[] };awaitCondition { fake.moves > before }
+        check("removing persistent rule permits fill again",fake.moves > before)
+        child.toggleStageSessionExclusion(fake.record.token);pump(2.2)
+        let sessionMoves=fake.moves;fake.record.frame=original;fake.emit();pump(2.2)
+        check("session exclusion blocks current window",fake.moves == sessionMoves && child.stageSessionExclusions.contains(fake.record.token))
+        check("session exclusion never writes stored type rules",child.database.preferences.stageExcludedKinds.isEmpty)
+        child.toggleStageSessionExclusion(fake.record.token);awaitCondition { fake.moves > sessionMoves }
+        check("removing session exclusion permits fill",fake.moves > sessionMoves)
+        fake.record.identity.identifier=""
+        check("missing identifier never creates broad persistent rule",child.stageRule(for:fake.record) == nil)
+        fake.emit();pump(2.2);delegate.menuWillOpen(menu)
+        check("menu offers only session fallback without identifier",menu.items.first { $0.title == "铺满排除" }?.submenu?.items.contains { $0.title == "无可靠标识，仅可临时排除当前窗口" } == true)
+        child.toggleStageSessionExclusion(fake.record.token);pump(2.2)
+        fake.omitWindow=true;fake.emit();pump(0.6)
+        check("complete scan clears closed window session exclusion",child.stageSessionExclusions.isEmpty)
+        fake.omitWindow=false;fake.record.identity.identifier="viewer"
+        fake.record.stageTraits=StageWindowTraits();fake.record.frame=original;fake.holdFill=true
+        child.setPreferences { $0.stageFillChildren=false };awaitCondition { fake.heldFill != nil }
+        check("independent main window allowed with child option off",fake.heldFill != nil)
+        let pendingMoves=fake.moves
+        child.toggleStageSessionExclusion(fake.record.token)
+        fake.heldFill?();fake.heldFill=nil;fake.holdFill=false;pump(2.2)
+        check("exclusion cancels an in flight fill before mutation",fake.moves == pendingMoves)
+        child.toggleStageSessionExclusion(fake.record.token);pump(2.2)
+        child.setPreferences { $0.stageFill=false };pump(2.2)
+        delegate.menuWillOpen(menu)
+        check("child option disabled while master is off",menu.items.first { $0.title == "同时铺满子窗口" }?.isEnabled == false)
+        enabled=false;fake.record.frame=original
+        child.setPreferences { $0.stageFill=true }
+        awaitCondition { fake.record.frame == db.profiles[0].windows[0].frame }
+        check("system stage off performs ordinary restore despite master on",fake.record.frame == db.profiles[0].windows[0].frame)
+        child.togglePause()
+    } catch { failed+=1;print("FAIL ENGINE child policy: \(error)") }
     print("ENGINE_TESTS passed=\(passed) failed=\(failed); injected adapter, not physical AX or Stage Manager validation")
     return failed == 0 ? 0:1
 }

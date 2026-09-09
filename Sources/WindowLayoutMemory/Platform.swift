@@ -4,8 +4,8 @@ import LayoutCore
 
 enum AppVersion {
     static var marketing: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.3.0" }
-    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "7" }
-    static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.3" }
+    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "9" }
+    static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.5" }
     static var label: String { "\(marketing)-\(channel) / build \(build)" }
 }
 
@@ -28,6 +28,7 @@ struct AXRecord {
     var token: String, app: String, pid: pid_t, element: AXUIElement
     var identity: WindowIdentity, frame: Rect
     var focused: Bool, usable: Bool
+    var stageTraits=StageWindowTraits()
     var live: LiveWindow { LiveWindow(token:token,identity:identity,frame:frame,eligible:usable && focused) }
 }
 struct ScanResult { var pid: pid_t, records: [AXRecord], error: String? }
@@ -37,6 +38,7 @@ protocol WindowService: AnyObject {
     func detach(_ pid: pid_t)
     func scan(pid: pid_t, bundle: String, name: String, front: Bool, hidden: Bool, allowed: @escaping ()->Bool, completion: @escaping (ScanResult)->Void)
     func move(_ record: AXRecord, to target: Rect, allowed: @escaping ()->Bool, completion: @escaping (Rect?,String?)->Void)
+    func fill(_ record: AXRecord, to target: Rect, allowed: @escaping ()->Bool, completion: @escaping (Rect?,String?)->Void)
 }
 struct RunningAppSnapshot {
     var pid: pid_t, bundle: String, name: String, hidden: Bool
@@ -151,8 +153,19 @@ final class AXService: WindowService {
                 serial &+= 1
                 let token=old.first(where:{ CFEqual($0.element,e) })?.token ?? "\(pid):\(serial)"
                 let focused=front && focus.map { CFEqual($0,e) } == true
+                // Only inspect focused-window ancestry; no recursive traversal or extra polling.
+                var traits=StageWindowTraits(role:"",subrole:kAXStandardWindowSubrole,parentRole:"")
+                if focused {
+                    traits.role=value(e,kAXRoleAttribute) as? String ?? ""
+                    traits.modal=value(e,kAXModalAttribute) as? Bool ?? false
+                    if let parent=value(e,kAXParentAttribute),CFGetTypeID(parent) == AXUIElementGetTypeID() {
+                        let element=parent as! AXUIElement
+                        AXUIElementSetMessagingTimeout(element,0.15)
+                        traits.parentRole=CFEqual(element,app) ? kAXApplicationRole : value(element,kAXRoleAttribute) as? String ?? ""
+                    }
+                }
                 records.append(AXRecord(token:token,app:name,pid:pid,element:e,identity:identity,frame:frame,
-                                        focused:focused,usable:!hidden && !minimized && !fullscreen))
+                                        focused:focused,usable:!hidden && !minimized && !fullscreen,stageTraits:traits))
                 if let observer=observers[pid] {
                     if !previouslyWatched.contains(where: { CFEqual($0,e) }) {
                         var registered=true
@@ -188,6 +201,41 @@ final class AXService: WindowService {
     }
     func move(_ record: AXRecord, to target: Rect, allowed: @escaping ()->Bool, completion: @escaping (Rect?,String?)->Void) {
         move(record,to:target,retries:1,allowed:allowed,completion:completion)
+    }
+    func fill(_ record: AXRecord, to target: Rect, allowed: @escaping ()->Bool, completion: @escaping (Rect?,String?)->Void) {
+        queue.async { [self] in
+            let e=record.element, application=AXUIElementCreateApplication(record.pid)
+            AXUIElementSetMessagingTimeout(e,0.15)
+            AXUIElementSetMessagingTimeout(application,0.15)
+            func permitted() -> Bool {
+                guard AXIsProcessTrusted(), DispatchQueue.main.sync(execute:allowed),
+                      !CGEventSource.buttonState(.combinedSessionState,button:.left),
+                      let focused=value(application,kAXFocusedWindowAttribute),CFEqual(focused,e),
+                      value(e,kAXMinimizedAttribute) as? Bool == false,
+                      value(e,"AXFullScreen") as? Bool != true else { return false }
+                return true
+            }
+            guard permitted(),geometry(e)?.close(to:record.frame,tolerance:4) == true else {
+                DispatchQueue.main.async { completion(nil,"窗口焦点或几何已变化，已取消") }; return
+            }
+            var positionSettable=DarwinBoolean(false),sizeSettable=DarwinBoolean(false)
+            guard AXUIElementIsAttributeSettable(e,kAXPositionAttribute as CFString,&positionSettable) == .success,
+                  AXUIElementIsAttributeSettable(e,kAXSizeAttribute as CFString,&sizeSettable) == .success,
+                  positionSettable.boolValue,sizeSettable.boolValue else {
+                DispatchQueue.main.async { completion(nil,"窗口不允许修改位置或尺寸") }; return
+            }
+            SizeFirstPlacement.run(target:target,allowed:permitted,resize:{
+                var size=CGSize(width:target.width,height:target.height)
+                return AXUIElementSetAttributeValue(e,kAXSizeAttribute as CFString,AXValueCreate(.cgSize,&size)!) == .success
+            },read:{ self.geometry(e) },position:{
+                var point=CGPoint(x:target.x,y:target.y)
+                return AXUIElementSetAttributeValue(e,kAXPositionAttribute as CFString,AXValueCreate(.cgPoint,&point)!) == .success
+            },schedule:{ action in
+                self.queue.asyncAfter(deadline:.now()+0.15,execute:action)
+            },completion:{ actual,error in
+                DispatchQueue.main.async { completion(actual,error) }
+            })
+        }
     }
     private func move(_ record: AXRecord, to target: Rect, retries: Int, allowed: @escaping ()->Bool, completion: @escaping (Rect?,String?)->Void) {
         queue.async { [self] in

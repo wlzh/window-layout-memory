@@ -30,6 +30,7 @@ final class Engine {
     private var leftEdgeGestures: Set<String>=[]
     private var stageAttempted: Set<String>=[]
     private var stageFocus: String?
+    private(set) var stageSessionExclusions: Set<String>=[]
     private var lastStageState=false
     private var skipRestoreAfterModeOff: String?
     private var learnAfter: TimeInterval=0
@@ -80,6 +81,7 @@ final class Engine {
             guard let self,let app=note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let pid=app.processIdentifier
             self.service.detach(pid); self.records[pid]=nil; self.recordContexts[pid]=nil; self.pending.remove(pid)
+            self.stageSessionExclusions=self.stageSessionExclusions.filter { !$0.hasPrefix("\(pid):") }
             self.evidence=self.evidence.filter { !$0.key.hasPrefix("\(pid):") }
             self.candidates=self.candidates.filter { !$0.key.hasPrefix("\(pid):") }
             self.bindings=self.bindings.filter { !$0.value.hasPrefix("\(pid):") }
@@ -204,6 +206,7 @@ final class Engine {
                 guard self.guardState.permits(generation,key:key),self.environment.topology().key == key else { return }
                 let tokens=Set(result.records.map(\.token))
                 if result.error == nil {
+                    self.stageSessionExclusions=self.stageSessionExclusions.filter { !$0.hasPrefix("\(pid):") || tokens.contains($0) }
                     self.evidence=self.evidence.filter { !$0.key.hasPrefix("\(pid):") || tokens.contains($0.key) }
                     self.candidates=self.candidates.filter { !$0.key.hasPrefix("\(pid):") || tokens.contains($0.key) }
                 }
@@ -225,6 +228,12 @@ final class Engine {
         let matching=Matcher.assign(profile?.windows ?? [],allRecords.map(\.live),bindings:bindings)
         for record in batch where record.focused && record.usable {
             guard environment.frontPID() == record.pid else { continue }
+            if stageEnabled,let owner=topology.owner(of:record.frame),stageTarget(owner) != nil,!stagePermits(record) {
+                // Excluded popups must not fall through to restore or baseline learning.
+                candidates[record.token]=nil;evidence[record.token]=nil
+                learning.discard(record.token);gestureOrigins[record.token]=nil;leftEdgeGestures.remove(record.token)
+                continue
+            }
             guard evidence[record.token] != nil || evidence.count < 500 else { issues["capacity"]="已达到500个候选上限，请保存并重新核对"; continue }
             if now < suppressUntil[record.token,default:0] {
                 // Keep a newly activated window pending through the finite move guard.
@@ -286,10 +295,11 @@ final class Engine {
     private func stageTarget(_ display: Display) -> Rect? {
         guard database.preferences.stageFill,environment.stageManagerEnabled() == true else { return nil }
         return StageFill.target(display:environment.stageDisplay(display),
-            inset:database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:display)] ?? 200)
+            inset:database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:display)] ?? StageFill.defaultInset)
     }
     // Saved identity chooses the screen; fill only changes geometry on that screen.
     private func stageDestination(_ record: AXRecord) -> Rect? {
+        guard stagePermits(record) else { return nil }
         guard database.preferences.stageFill,environment.stageManagerEnabled() == true,
               let current=topology.owner(of:record.frame) else { return nil }
         if database.preferences.autoRestore,let profile {
@@ -321,14 +331,18 @@ final class Engine {
         else { persist(next,message:"已记忆此组合/显示器的左侧留白：\(Int(inset)) pt",completion:finish) }
     }
     private func applyStageFill(_ record: AXRecord, target: Rect, followSavedDisplay: Bool = false) {
-        guard !record.frame.close(to:target,tolerance:0.5),!moving.contains(record.token) else { return }
+        guard stagePermits(record),!record.frame.close(to:target,tolerance:0.5),!moving.contains(record.token) else { return }
         let generation=guardState.generation,key=topology.key,revision=profile?.revision
         moving.insert(record.token);suppressUntil[record.token]=environment.now()+2
         candidates[record.token]=nil;learning.discard(record.token);gestureOrigins[record.token]=nil
-        service.move(record,to:target,allowed:{ [weak self] in
+        // A saved portrait destination is ordinary restoration, not landscape filling.
+        let destination=topology.owner(of:target)
+        let placement = destination.map { $0.frame.width <= $0.frame.height } == true ? service.move : service.fill
+        placement(record,target,{ [weak self] in
             guard let self else { return false }
             let latest=self.environment.topology()
             guard self.guardState.permits(generation,key:key),self.environment.trusted(),latest.key == key,
+                  self.stagePermits(record),
                   !self.environment.pointerDown(),self.environment.frontPID() == record.pid,
                   !self.database.preferences.excludedBundles.contains(record.identity.bundle),
                   self.profile?.revision == revision,
@@ -406,6 +420,7 @@ final class Engine {
         guard !busy,!storageFailed else { return }
         var next=database; edit(&next.preferences)
         if database.preferences.stageFill && !next.preferences.stageFill { skipRestoreAfterModeOff=stageFocus }
+        if !database.preferences.stageFill && next.preferences.stageFill { skipRestoreAfterModeOff=nil }
         let wasPaused=guardState.paused
         guardState.paused=true
         invalidate("设置已改变，重新核对")
@@ -414,6 +429,29 @@ final class Engine {
             guard let self else { return }
             if success,self.guardState.generation == generation { self.guardState.paused=wasPaused; self.displayChanged() }
         }
+    }
+    func stagePermits(_ record: AXRecord) -> Bool {
+        record.stageTraits.permits(includeChildren:database.preferences.stageFillChildren) &&
+        !stageSessionExclusions.contains(record.token) &&
+        !database.preferences.stageExcludedKinds.contains { $0.matches(record.identity,traits:record.stageTraits) }
+    }
+    var stageMenuRecord: AXRecord? {
+        guard environment.trusted(),!guardState.settling,!guardState.paused else { return nil }
+        return allRecords.first { $0.focused && $0.usable && $0.pid == environment.frontPID() }
+    }
+    func stageRule(for record: AXRecord) -> StageWindowRule? {
+        let rule=StageWindowRule(bundle:record.identity.bundle,identifier:record.identity.identifier,
+                                 role:record.stageTraits.role,subrole:record.stageTraits.subrole)
+        return rule.valid ? rule:nil
+    }
+    func toggleStageSessionExclusion(_ token: String) {
+        guard !busy,allRecords.contains(where:{ $0.token == token }) else { return }
+        if stageSessionExclusions.contains(token) { stageSessionExclusions.remove(token) }
+        else {
+            guard stageSessionExclusions.count < 500 else { status="临时排除已达500个上限";changed?();return }
+            stageSessionExclusions.insert(token)
+        }
+        invalidate("窗口铺满排除已更新");displayChanged()
     }
     func toggleLock() {
         guard var p=profile,!busy else { return }
@@ -555,7 +593,7 @@ final class Engine {
     }
     func report() -> String {
         let matching=Matcher.assign(profile?.windows ?? [],allRecords.map(\.live),bindings:bindings)
-        let screenLines=topology.displays.map { "\($0.name) [UUID \($0.id.prefix(8))…]: \(Int($0.frame.width))×\(Int($0.frame.height)) @ (\(Int($0.frame.x)),\(Int($0.frame.y)))；铺满留白 \(Int(database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:$0)] ?? 200)) pt\($0.frame.width > $0.frame.height ? "":"（非横屏，不铺满）")" }
+        let screenLines=topology.displays.map { "\($0.name) [UUID \($0.id.prefix(8))…]: \(Int($0.frame.width))×\(Int($0.frame.height)) @ (\(Int($0.frame.x)),\(Int($0.frame.y)))；铺满留白 \(Int(database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:$0)] ?? StageFill.defaultInset)) pt\($0.frame.width > $0.frame.height ? "":"（非横屏，不铺满）")" }
         let windowLines=allRecords.sorted { $0.app < $1.app }.map { r in
             let owner=topology.owner(of:r.frame)?.name ?? "归属待确认"
             return "\(r.app) | \(owner) | (\(Int(r.frame.x)),\(Int(r.frame.y))) \(Int(r.frame.width))×\(Int(r.frame.height)) | \(candidates[r.token] != nil ? "已核对候选":r.usable && r.focused ? "核对中":"等待激活")"
@@ -566,7 +604,8 @@ final class Engine {
                  "当前组合：\(profile?.name ?? "未建立基准")；各组合包含独立的内屏和外屏窗口记录",
                  "匹配：\(matching.resolved.count)；歧义：\(matching.ambiguous.count)；待出现：\(matching.missing.count)",
                  "拖动自动记忆：\(database.preferences.autoRemember ? "开启":"关闭")；自动恢复：\(database.preferences.autoRestore ? "开启":"关闭")。不展开后台组。",
-                 "台前调度横屏铺满：\(database.preferences.stageFill ? "开启":"关闭")；系统状态：\(environment.stageManagerEnabled().map { $0 ? "开启":"关闭" } ?? "未知（不铺满）")；默认留白200 pt，拖左边缘调整。",
+                 "台前调度横屏铺满：\(database.preferences.stageFill ? "开启":"关闭")；系统状态：\(environment.stageManagerEnabled().map { $0 ? "开启":"关闭" } ?? "未知（不铺满）")；默认留白100 pt，拖左边缘调整。",
+                 "子窗口铺满：\(database.preferences.stageFillChildren ? "开启":"关闭")；永久排除规则：\(database.preferences.stageExcludedKinds.count)；临时排除：\(stageSessionExclusions.count)。类型未知、对话框和浮动面板不铺满。",
                  "此版本尚未通过完整硬件与性能验收。", "\n显示器"]
         lines += screenLines
         lines.append("\n窗口（不含标题与路径）")
