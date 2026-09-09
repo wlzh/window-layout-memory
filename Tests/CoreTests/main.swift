@@ -638,94 +638,52 @@ test("stage app exclusions migrate persist and validate independently") {
         do { try db.validate();try expect(false) } catch CoreError.invalid { try expect(true) }
     }
 }
-test("edge plans keep already aligned edges and converge monotonically") {
-    let target=Rect(-1820,-199,1820,1055)
-    for initial in [Rect(-1664,-132,1664,988),Rect(-1820,-199,1200,700),Rect(-1920,-224,1920,1080),target] {
-        let steps=EdgeAnchoredPlacement.frames(from:initial,to:target)!
-        var old=initial
-        func edges(_ r:Rect)->[Double] { [r.x,r.y,r.x+r.width,r.y+r.height] }
-        for frame in steps {
-            for ((before,after),goal) in zip(zip(edges(old),edges(frame)),edges(target)) {
-                try expect(abs(after-before) <= 32.001)
-                try expect(abs(after-goal) <= abs(before-goal)+0.001)
-                if abs(before-goal)<0.001 { try expect(abs(after-goal)<0.001) }
-            }
-            try expect(frame.valid);old=frame
-        }
-        try expect(old.close(to:target,tolerance:0.001) && steps.count <= 128)
-    }
-    try expect(EdgeAnchoredPlacement.frames(from:Rect(0,0,0,10),to:target) == nil)
-    try expect(EdgeAnchoredPlacement.frames(from:Rect(10000,0,10,10),to:target) == nil)
-}
-test("edge runner expands from right bottom anchor under screen size clamping") {
-    let target=Rect(-1820,-199,1820,1055)
-    var frame=Rect(-1664,-132,1664,988),jobs:[()->Void]=[],writes:[Rect]=[],done=0,error:String?
-    EdgeAnchoredPlacement.run(initial:frame,target:target,allowed:{true},read:{frame},resize:{ next in
-        frame.width=min(next.width,0-frame.x);frame.height=min(next.height,856-frame.y)
-        writes.append(frame);return true
-    },position:{ next in frame.x=next.x;frame.y=next.y;return true },schedule:{jobs.append($0)},completion:{_,message in done+=1;error=message})
-    while !jobs.isEmpty { jobs.removeFirst()() }
-    try expect(done == 1 && error == nil && frame.close(to:target,tolerance:0.001))
-    try expect(writes.allSatisfy { abs($0.x+$0.width)<0.001 && abs($0.y+$0.height-856)<0.001 })
-    try expect(writes.first!.x > target.x && writes.first!.width > 1664)
-}
-test("edge runner contraction resizes before moving and right expansion never translates") {
-    for initial in [Rect(-1920,-224,1920,1080),Rect(-1820,-199,1200,700)] {
-        let target=Rect(-1820,-199,1820,1055)
-        var frame=initial,jobs:[()->Void]=[],events:[String]=[],error:String?
-        EdgeAnchoredPlacement.run(initial:frame,target:target,allowed:{true},read:{frame},resize:{n in
-            events.append("size");frame.width=n.width;frame.height=n.height;return true
-        },position:{n in events.append("position");frame.x=n.x;frame.y=n.y;return true},schedule:{jobs.append($0)},completion:{_,e in error=e})
-        while !jobs.isEmpty { jobs.removeFirst()() }
-        try expect(error == nil && frame.close(to:target,tolerance:0.001) && events.first == "size")
-        if initial.x == target.x { try expect(!events.contains("position")) }
+test("enhanced UI compatibility lease restores only original enabled state exactly once") {
+    for mode in ["enabled","disabled","unknown","assistive","failure","partialFailure"] {
+        var state:Bool?=mode == "unknown" ? nil:mode != "disabled"
+        var writes:[Bool]=[]
+        let lease=EnhancedUILease(assistiveTechnologyActive:mode == "assistive",read:{state},write:{ enabled in
+            writes.append(enabled)
+            if mode != "failure" {state=enabled}
+            return mode != "failure" && mode != "partialFailure"
+        })
+        lease.finish();lease.finish()
+        if ["enabled","partialFailure"].contains(mode) {try expect(writes == [false,true] && state == true)}
+        else if mode == "failure" {try expect(writes == [false] && state == true)}
+        else {try expect(writes.isEmpty)}
     }
 }
-test("edge runner stops once on ignored writes failures cancellation and unreadable geometry") {
-    for mode in ["ignored","positionFailure","sizeFailure","cancel","cancelAfterPair","externalMove","unreadable","initialDenied"] {
-        let initial=Rect(200,100,800,700),target=Rect(100,0,900,800)
-        var frame=initial,jobs:[()->Void]=[],writes=0,done=0,error:String?,ticks=0
-        EdgeAnchoredPlacement.run(initial:initial,target:target,allowed:{mode != "initialDenied" && !(mode == "cancel" && writes>0) && !(mode == "cancelAfterPair" && writes>=2)},read:{mode == "unreadable" ? nil:frame},resize:{n in
-            writes+=1;if mode == "sizeFailure" {return false}
-            if mode != "ignored" {frame.width=n.width;frame.height=n.height};return true
-        },position:{n in
-            writes+=1;if mode == "positionFailure" {return false}
-            if mode != "ignored" {frame.x=n.x;frame.y=n.y};return true
-        },schedule:{jobs.append($0)},completion:{_,e in done+=1;error=e})
-        if mode == "externalMove" {frame.x+=200}
-        while !jobs.isEmpty && ticks<20 {ticks+=1;jobs.removeFirst()()}
-        try expect(done == 1 && error != nil && ticks<20 && jobs.isEmpty)
-        try expect(writes <= 2)
-    }
+test("enhanced UI compatibility lease cleans up abandoned operations") {
+    var writes:[Bool]=[]
+    var lease:EnhancedUILease?=EnhancedUILease(assistiveTechnologyActive:false,read:{true},write:{ writes.append($0);return true })
+    try expect(lease != nil && writes == [false]);lease=nil
+    try expect(writes == [false,true])
 }
-test("edge runner accepts delayed readback and already aligned geometry without extra writes") {
-    for initial in [Rect(200,100,800,700),Rect(100,0,900,800)] {
-        let target=Rect(100,0,900,800)
-        var frame=initial,jobs:[()->Void]=[],writes=0,done=0,error:String?,ticks=0
-        EdgeAnchoredPlacement.run(initial:frame,target:target,allowed:{true},read:{frame},resize:{n in
-            writes+=1;jobs.append {frame.width=n.width;frame.height=n.height};return true
-        },position:{n in writes+=1;frame.x=n.x;frame.y=n.y;return true},schedule:{jobs.append($0)},completion:{_,e in done+=1;error=e})
-        while !jobs.isEmpty && ticks<40 {ticks+=1;jobs.removeFirst()()}
-        try expect(done == 1 && error == nil && jobs.isEmpty && frame.close(to:target,tolerance:0.001))
-        if initial == target {try expect(writes == 0)}
-    }
-}
-test("edge step coordinates asynchronous position and bounded ignored size retries") {
-    for mode in ["recover","stuck","cancelRetry"] {
-        let initial=Rect(200,100,800,700),target=Rect(184,84,816,716)
-        var frame=initial,jobs:[()->Void]=[],positions=0,sizes=0,done=0,error:String?,ticks=0
-        EdgeAnchoredPlacement.run(initial:initial,target:target,allowed:{ !(mode == "cancelRetry" && sizes>0) },read:{frame},resize:{n in
-            sizes+=1
-            if sizes>1 && mode == "recover" {frame.width=n.width;frame.height=n.height}
+test("size gated fill with compatibility lease never positions unsupported windows") {
+    for mode in ["supported","unsupported","cancelled"] {
+        let target=Rect(100,0,1100,900),initial=Rect(250,100,800,700)
+        var frame=initial,enhanced=true,jobs:[()->Void]=[],positions=0,done=0,error:String?,resized=false
+        let lease=EnhancedUILease(assistiveTechnologyActive:false,read:{enhanced},write:{enhanced=$0;return true})
+        SizeFirstPlacement.run(target:target,allowed:{mode != "cancelled" || !resized},resize:{
+            resized=true
+            if !enhanced && mode == "supported" {frame.width=target.width;frame.height=target.height}
             return true
-        },position:{n in
-            positions+=1;jobs.append {frame.x=n.x;frame.y=n.y};return true
-        },schedule:{jobs.append($0)},completion:{_,e in done+=1;error=e})
-        while !jobs.isEmpty && ticks<20 {ticks+=1;jobs.removeFirst()()}
-        try expect(done == 1 && jobs.isEmpty && ticks<20 && positions == 1 && sizes<=4)
-        if mode == "recover" {try expect(error == nil && frame == target && sizes == 2)}
-        else {try expect(error != nil && frame.width == initial.width)}
+        },read:{frame},position:{positions+=1;frame.x=target.x;frame.y=target.y;return true},schedule:{jobs.append($0)},completion:{_,e in
+            done+=1;error=e;lease.finish()
+        })
+        while !jobs.isEmpty {jobs.removeFirst()()}
+        try expect(done == 1 && enhanced)
+        if mode == "supported" {try expect(positions == 1 && frame == target && error == nil)}
+        else {try expect(positions == 0 && frame == initial && error != nil)}
     }
+}
+test("compatibility cleanup failure is reported instead of silently discarded") {
+    var enabled=true
+    let lease=EnhancedUILease(assistiveTechnologyActive:false,read:{enabled},write:{value in
+        if value {return false};enabled=false;return true
+    })
+    try expect(!lease.finish() && !enabled)
+    try expect(lease.finish())
 }
 print("CORE_TESTS passed=\(passed) failed=\(failed) assertions=\(assertions)")
 print("Coverage percentage: NOT MEASURED. AX, UI, Stage Manager, hardware and performance tests: NOT RUN.")

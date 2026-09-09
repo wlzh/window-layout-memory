@@ -4,7 +4,7 @@ import LayoutCore
 
 enum AppVersion {
     static var marketing: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.3.0" }
-    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "14" }
+    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "15" }
     static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.9" }
     static var label: String { "\(marketing)-\(channel) / build \(build)" }
 }
@@ -224,26 +224,15 @@ final class AXService: WindowService {
                   positionSettable.boolValue,sizeSettable.boolValue else {
                 DispatchQueue.main.async { completion(nil,"窗口不允许修改位置或尺寸") }; return
             }
-            let sameScreen=DispatchQueue.main.sync {
-                let topology=displaysNow()
-                guard let source=topology.owner(of:record.frame),let destination=topology.owner(of:target) else { return false }
-                return source.id == destination.id
+            let assistiveActive=DispatchQueue.main.sync {
+                NSWorkspace.shared.isVoiceOverEnabled || NSWorkspace.shared.isSwitchControlEnabled
             }
-            if sameScreen {
-                let deadline=ProcessInfo.processInfo.systemUptime+8
-                EdgeAnchoredPlacement.run(initial:record.frame,target:target,allowed:{
-                    ProcessInfo.processInfo.systemUptime < deadline && permitted()
-                },read:{ self.geometry(e) },resize:{ frame in
-                    var size=CGSize(width:frame.width,height:frame.height)
-                    return AXUIElementSetAttributeValue(e,kAXSizeAttribute as CFString,AXValueCreate(.cgSize,&size)!) == .success
-                },position:{ frame in
-                    var point=CGPoint(x:frame.x,y:frame.y)
-                    return AXUIElementSetAttributeValue(e,kAXPositionAttribute as CFString,AXValueCreate(.cgPoint,&point)!) == .success
-                },schedule:{ action in self.queue.asyncAfter(deadline:.now()+0.03,execute:action) },completion:{ actual,error in
-                    DispatchQueue.main.async { completion(actual,error) }
-                })
-                return
-            }
+            guard permitted() else {DispatchQueue.main.async {completion(nil,"窗口状态变化，已取消")};return}
+            let lease=EnhancedUILease(assistiveTechnologyActive:assistiveActive,read:{
+                self.value(application,"AXEnhancedUserInterface") as? Bool
+            },write:{ enabled in
+                AXUIElementSetAttributeValue(application,"AXEnhancedUserInterface" as CFString,enabled ? kCFBooleanTrue:kCFBooleanFalse) == .success
+            })
             SizeFirstPlacement.run(target:target,allowed:permitted,resize:{
                 var size=CGSize(width:target.width,height:target.height)
                 return AXUIElementSetAttributeValue(e,kAXSizeAttribute as CFString,AXValueCreate(.cgSize,&size)!) == .success
@@ -253,7 +242,11 @@ final class AXService: WindowService {
             },schedule:{ action in
                 self.queue.asyncAfter(deadline:.now()+0.15,execute:action)
             },completion:{ actual,error in
-                DispatchQueue.main.async { completion(actual,error) }
+                let restored=lease.finish()
+                let observed=self.geometry(e)
+                let resultError = !restored ? "辅助兼容属性恢复失败，请重新核对" :
+                    error ?? (observed?.close(to:target,tolerance:2) == true ? nil:"最终窗口尺寸或位置未到位")
+                DispatchQueue.main.async { completion(observed ?? actual,resultError) }
             })
         }
     }
