@@ -638,6 +638,78 @@ test("stage app exclusions migrate persist and validate independently") {
         do { try db.validate();try expect(false) } catch CoreError.invalid { try expect(true) }
     }
 }
+test("edge plans keep already aligned edges and converge monotonically") {
+    let target=Rect(-1820,-199,1820,1055)
+    for initial in [Rect(-1664,-132,1664,988),Rect(-1820,-199,1200,700),Rect(-1920,-224,1920,1080),target] {
+        let steps=EdgeAnchoredPlacement.frames(from:initial,to:target)!
+        var old=initial
+        func edges(_ r:Rect)->[Double] { [r.x,r.y,r.x+r.width,r.y+r.height] }
+        for frame in steps {
+            for ((before,after),goal) in zip(zip(edges(old),edges(frame)),edges(target)) {
+                try expect(abs(after-before) <= 32.001)
+                try expect(abs(after-goal) <= abs(before-goal)+0.001)
+                if abs(before-goal)<0.001 { try expect(abs(after-goal)<0.001) }
+            }
+            try expect(frame.valid);old=frame
+        }
+        try expect(old.close(to:target,tolerance:0.001) && steps.count <= 128)
+    }
+    try expect(EdgeAnchoredPlacement.frames(from:Rect(0,0,0,10),to:target) == nil)
+    try expect(EdgeAnchoredPlacement.frames(from:Rect(10000,0,10,10),to:target) == nil)
+}
+test("edge runner expands from right bottom anchor under screen size clamping") {
+    let target=Rect(-1820,-199,1820,1055)
+    var frame=Rect(-1664,-132,1664,988),jobs:[()->Void]=[],writes:[Rect]=[],done=0,error:String?
+    EdgeAnchoredPlacement.run(initial:frame,target:target,allowed:{true},read:{frame},resize:{ next in
+        frame.width=min(next.width,0-frame.x);frame.height=min(next.height,856-frame.y)
+        writes.append(frame);return true
+    },position:{ next in frame.x=next.x;frame.y=next.y;return true },schedule:{jobs.append($0)},completion:{_,message in done+=1;error=message})
+    while !jobs.isEmpty { jobs.removeFirst()() }
+    try expect(done == 1 && error == nil && frame.close(to:target,tolerance:0.001))
+    try expect(writes.allSatisfy { abs($0.x+$0.width)<0.001 && abs($0.y+$0.height-856)<0.001 })
+    try expect(writes.first!.x > target.x && writes.first!.width > 1664)
+}
+test("edge runner contraction resizes before moving and right expansion never translates") {
+    for initial in [Rect(-1920,-224,1920,1080),Rect(-1820,-199,1200,700)] {
+        let target=Rect(-1820,-199,1820,1055)
+        var frame=initial,jobs:[()->Void]=[],events:[String]=[],error:String?
+        EdgeAnchoredPlacement.run(initial:frame,target:target,allowed:{true},read:{frame},resize:{n in
+            events.append("size");frame.width=n.width;frame.height=n.height;return true
+        },position:{n in events.append("position");frame.x=n.x;frame.y=n.y;return true},schedule:{jobs.append($0)},completion:{_,e in error=e})
+        while !jobs.isEmpty { jobs.removeFirst()() }
+        try expect(error == nil && frame.close(to:target,tolerance:0.001) && events.first == "size")
+        if initial.x == target.x { try expect(!events.contains("position")) }
+    }
+}
+test("edge runner stops once on ignored writes failures cancellation and unreadable geometry") {
+    for mode in ["ignored","positionFailure","sizeFailure","cancel","cancelAfterPair","externalMove","unreadable","initialDenied"] {
+        let initial=Rect(200,100,800,700),target=Rect(100,0,900,800)
+        var frame=initial,jobs:[()->Void]=[],writes=0,done=0,error:String?,ticks=0
+        EdgeAnchoredPlacement.run(initial:initial,target:target,allowed:{mode != "initialDenied" && !(mode == "cancel" && writes>0) && !(mode == "cancelAfterPair" && writes>=2)},read:{mode == "unreadable" ? nil:frame},resize:{n in
+            writes+=1;if mode == "sizeFailure" {return false}
+            if mode != "ignored" {frame.width=n.width;frame.height=n.height};return true
+        },position:{n in
+            writes+=1;if mode == "positionFailure" {return false}
+            if mode != "ignored" {frame.x=n.x;frame.y=n.y};return true
+        },schedule:{jobs.append($0)},completion:{_,e in done+=1;error=e})
+        if mode == "externalMove" {frame.x+=200}
+        while !jobs.isEmpty && ticks<20 {ticks+=1;jobs.removeFirst()()}
+        try expect(done == 1 && error != nil && ticks<20 && jobs.isEmpty)
+        try expect(writes <= 2)
+    }
+}
+test("edge runner accepts delayed readback and already aligned geometry without extra writes") {
+    for initial in [Rect(200,100,800,700),Rect(100,0,900,800)] {
+        let target=Rect(100,0,900,800)
+        var frame=initial,jobs:[()->Void]=[],writes=0,done=0,error:String?,ticks=0
+        EdgeAnchoredPlacement.run(initial:frame,target:target,allowed:{true},read:{frame},resize:{n in
+            writes+=1;jobs.append {frame.width=n.width;frame.height=n.height};return true
+        },position:{n in writes+=1;frame.x=n.x;frame.y=n.y;return true},schedule:{jobs.append($0)},completion:{_,e in done+=1;error=e})
+        while !jobs.isEmpty && ticks<40 {ticks+=1;jobs.removeFirst()()}
+        try expect(done == 1 && error == nil && jobs.isEmpty && frame.close(to:target,tolerance:0.001))
+        if initial == target {try expect(writes == 0)}
+    }
+}
 print("CORE_TESTS passed=\(passed) failed=\(failed) assertions=\(assertions)")
 print("Coverage percentage: NOT MEASURED. AX, UI, Stage Manager, hardware and performance tests: NOT RUN.")
 exit(failed==0 ? 0:1)

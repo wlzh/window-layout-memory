@@ -109,6 +109,12 @@ func runEngineChecks() -> Int32 {
     check("permission denial prevents new scans",service.scans == deniedScans && !engine.guardState.trusted)
     check("preview hides observations after permission denial",engine.previewScene(profileID:nil,mode:.current).rows.isEmpty)
     check("saved preview remains accessible without AX permission",engine.previewScene(profileID:nil,mode:.saved).rows.count == 1)
+    trusted=true;service.emit();pump(2.5)
+    check("permission grant resumes scans on next event without manual refresh",engine.guardState.trusted && service.scans > deniedScans)
+    trusted=false;service.emit();pump(1.2)
+    let revokedScans=service.scans
+    service.emit();pump(0.8)
+    check("permission revocation via event blocks further scans",!engine.guardState.trusted && service.scans == revokedScans)
     engine.togglePause()
 
     do {
