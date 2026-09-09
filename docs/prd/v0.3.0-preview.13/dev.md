@@ -1,0 +1,7 @@
+# 技术实现
+
+Preferences新增stagePortraitFill，decodeIfPresent默认false；anyStageFill供共用事件流程判断。schema仍为1，旧布局无需迁移；备份导入同时关闭stageFill和stagePortraitFill。
+
+StageFill.portraitTarget按显示器frame判断方向，按visible约束左右及必要纵向修正。Engine.stageTarget接收窗口frame，保存核验、在途授权、手动换屏、目标显示器恢复和留白更新均传递实际几何。跨屏恢复使用saved.target的纵向位置与高度，不把旧屏绝对纵坐标直接投到新屏。留白学习支持非正方形两方向。
+
+接口影响：菜单增加toggleStagePortraitFill；子窗口依赖anyStageFill；共享排除策略不变；竖屏手动纵向调整通过既有成功保存队列记忆。未添加服务、依赖或常驻计时器。

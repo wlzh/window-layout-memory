@@ -55,7 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let auto=add(automation,"自动恢复保存布局",#selector(toggleAuto),enabled:!engine.busy); auto.state=engine.database.preferences.autoRestore ? .on:.off
         let fill=add(stage,"横屏自动铺满",#selector(toggleStageFill),enabled:!engine.busy);fill.state=engine.database.preferences.stageFill ? .on:.off
         fill.toolTip="仅系统台前调度开启时生效；默认左留100 pt，可拖左边缘调整"
-        let children=add(stage,"同时铺满子窗口",#selector(toggleStageChildren),enabled:engine.database.preferences.stageFill && !engine.busy)
+        let portrait=add(stage,"竖屏横向撑满",#selector(toggleStagePortraitFill),enabled:!engine.busy)
+        portrait.state=engine.database.preferences.stagePortraitFill ? .on:.off
+        portrait.toolTip="默认关闭；左右撑满并保留左侧留白，纵向位置和高度不变，越界时修正；共用铺满例外"
+        let children=add(stage,"同时铺满子窗口",#selector(toggleStageChildren),enabled:engine.database.preferences.anyStageFill && !engine.busy)
         children.indentationLevel=1;children.state=engine.database.preferences.stageFillChildren ? .on:.off
         stage.addItem(.separator())
         let exceptions=NSMenu()
@@ -236,10 +239,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func refresh() { engine.displayChanged() }
     @objc func toggleObserve() { engine.setPreferences { $0.autoObserve.toggle() } }
     @objc func toggleStageFill() {
-        if !engine.database.preferences.stageFill && !confirm("仅台前调度开启时，自动将横屏前台窗口铺满可用工作区。左侧默认留白100 pt；拖左边缘后记住新留白。成功后更新当前组合的窗口位置、大小和显示器记录，保留历史；锁定布局不覆盖。手动换屏后以新屏幕为准。竖屏不铺满，关闭后停止铺满，不立即移动窗口。") { return }
+        if !engine.database.preferences.stageFill && !confirm("仅台前调度开启时，自动将横屏前台窗口铺满可用工作区。左侧默认留白100 pt；拖左边缘后记住新留白。成功后更新当前组合的窗口位置、大小和显示器记录，保留历史；锁定布局不覆盖。手动换屏后以新屏幕为准。此开关仅控制横屏，竖屏由独立开关控制；关闭后停止横屏铺满，不立即移动窗口。") { return }
         engine.setPreferences { $0.stageFill.toggle() }
     }
     @objc func toggleStageChildren() { engine.setPreferences { $0.stageFillChildren.toggle() } }
+    @objc func toggleStagePortraitFill() {
+        if !engine.database.preferences.stagePortraitFill && !confirm("仅台前调度开启时，将竖屏前台窗口横向撑满。沿用此组合/显示器的左侧留白，默认100 pt；保留纵向位置和高度，越界时夹回工作区。共用应用与窗口例外。成功后保存实际窗口布局，锁定布局不覆盖。") { return }
+        engine.setPreferences { $0.stagePortraitFill.toggle() }
+    }
     @objc func toggleStageWindow(_ sender:NSMenuItem) {
         guard let token=sender.representedObject as? String else { return }
         engine.toggleStageSessionExclusion(token)

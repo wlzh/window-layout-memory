@@ -131,7 +131,7 @@ final class Engine {
     // Capture the handle before movement; AX geometry notifications may arrive after mouse-up.
     func pointerEvent(down: Bool) {
         let now=environment.now()
-        let stageGesture=database.preferences.stageFill && environment.stageManagerEnabled() == true
+        let stageGesture=database.preferences.anyStageFill && environment.stageManagerEnabled() == true
         guard guardState.permits(guardState.generation,key:topology.key),environment.trusted(),
               environment.topology().key == topology.key,let point=environment.pointerLocation() else {
             pointerStart=nil;learning.reset();gestureOrigins.removeAll();return
@@ -235,7 +235,7 @@ final class Engine {
     }
     private func ingest(_ batch: [AXRecord]) {
         let now=environment.now()
-        let stageEnabled=database.preferences.stageFill && environment.stageManagerEnabled() == true
+        let stageEnabled=database.preferences.anyStageFill && environment.stageManagerEnabled() == true
         if lastStageState != stageEnabled {
             lastStageState=stageEnabled;stageFocus=nil;stageAttempted=[];candidates=[:]
             stageUserDisplays=[:];stageSaveQueue=[:]
@@ -277,18 +277,22 @@ final class Engine {
                                 status="手动换屏跟踪已达上限，未执行自动移动";continue
                             }
                             stageUserDisplays[record.token]=owner.id
-                            if let localTarget=stageTarget(owner) { applyStageFill(record,target:localTarget) }
+                            if let localTarget=stageTarget(owner,frame:record.frame) { applyStageFill(record,target:localTarget) }
                             else if database.preferences.autoRemember {
                                 let role=matching.resolved.first(where:{$0.value == record.token})?.key
                                 if role != nil || matching.ambiguous.isEmpty {
                                     save([(record.token,SavedWindow(id:role ?? UUID(),identity:record.identity,displayID:owner.id,frame:record.frame,sourceVisible:owner.visible))],automatic:true)
                                 }
                             }
-                        } else if leftEdgeGestures.contains(record.token),let origin=gestureOrigins[record.token],
+                        } else if stageTarget(owner,frame:record.frame) != nil,
+                           leftEdgeGestures.contains(record.token),let origin=gestureOrigins[record.token],
                            topology.owner(of:origin)?.id == owner.id,
                            let inset=StageFill.learnedInset(origin:origin,current:record.frame,display:environment.stageDisplay(owner)) {
                             if busy { enqueue(record.pid);continue }
                             rememberStageInset(inset,display:owner,record:record)
+                        } else if database.preferences.stagePortraitFill,owner.frame.height > owner.frame.width,
+                                  let localTarget=stageTarget(owner,frame:record.frame) {
+                            applyStageFill(record,target:localTarget)
                         }
                         learning.discard(record.token);gestureOrigins[record.token]=nil;leftEdgeGestures.remove(record.token)
                     } else if !stageAttempted.contains(record.token) {
@@ -321,30 +325,36 @@ final class Engine {
         guard !busy,!storageFailed,guardState.permits(guardState.generation,key:topology.key),!candidates.isEmpty else { status="没有可信候选或暂不可保存"; changed?(); return }
         save(Array(candidates),automatic:false)
     }
-    private func stageTarget(_ display: Display) -> Rect? {
-        guard database.preferences.stageFill,environment.stageManagerEnabled() == true else { return nil }
-        return StageFill.target(display:environment.stageDisplay(display),
-            inset:database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:display)] ?? StageFill.defaultInset)
+    private func stageTarget(_ display: Display, frame: Rect? = nil) -> Rect? {
+        guard database.preferences.anyStageFill,environment.stageManagerEnabled() == true else { return nil }
+        let work=environment.stageDisplay(display)
+        let inset=database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:display)] ?? StageFill.defaultInset
+        if display.frame.height > display.frame.width {
+            guard database.preferences.stagePortraitFill else { return nil }
+            return StageFill.portraitTarget(display:work,frame:frame ?? work.visible,inset:inset)
+        }
+        guard database.preferences.stageFill else { return nil }
+        return StageFill.target(display:work,inset:inset)
     }
     // Explicit mouse relocation wins until the verified replacement has been saved.
     private func stageDestination(_ record: AXRecord) -> Rect? {
         guard stagePermits(record) else { return nil }
-        guard database.preferences.stageFill,environment.stageManagerEnabled() == true,
+        guard database.preferences.anyStageFill,environment.stageManagerEnabled() == true,
               let current=topology.owner(of:record.frame) else { return nil }
-        if stageUserDisplays[record.token] == current.id { return stageTarget(current) ?? record.frame }
+        if stageUserDisplays[record.token] == current.id { return stageTarget(current,frame:record.frame) ?? record.frame }
         if database.preferences.autoRestore,let profile {
             let matching=Matcher.assign(profile.windows,allRecords.map(\.live),bindings:bindings)
             if let role=matching.resolved.first(where:{ $0.value == record.token })?.key,
                let saved=profile.windows.first(where:{ $0.id == role }),
                let destination=topology.displays.first(where:{ $0.id == saved.displayID }) {
-                if let filled=stageTarget(destination) { return filled }
-                // A portrait destination restores the saved frame, never landscape fill.
+                if let filled=stageTarget(destination,frame:current.id == destination.id ? record.frame : saved.target(in:topology)) { return filled }
+                // A destination with its fill mode disabled retains ordinary restoration.
                 if current.id != destination.id { return saved.target(in:topology) }
                 return nil
             }
         }
         // Unknown or ambiguous windows may fill locally, but never guess another screen.
-        return stageTarget(current)
+        return stageTarget(current,frame:record.frame)
     }
     private func rememberStageInset(_ inset: Double, display: Display, record: AXRecord) {
         guard !storageFailed else { return }
@@ -354,7 +364,7 @@ final class Engine {
         let generation=guardState.generation
         let finish: (Bool)->Void = { [weak self] success in
             guard let self,success,self.guardState.generation == generation,
-                  let target=self.stageTarget(display) else { return }
+                  let target=self.stageTarget(display,frame:record.frame) else { return }
             self.applyStageFill(record,target:target)
         }
         if next == database { finish(true) }
@@ -368,9 +378,10 @@ final class Engine {
         let generation=guardState.generation,key=topology.key,revision=profile?.revision
         moving.insert(record.token);suppressUntil[record.token]=environment.now()+2
         candidates[record.token]=nil;learning.discard(record.token);gestureOrigins[record.token]=nil
-        // A saved portrait destination is ordinary restoration, not landscape filling.
+        // Only destinations without an enabled fill mode use ordinary restoration.
         let destination=topology.owner(of:target)
-        let placement = destination.map { $0.frame.width <= $0.frame.height } == true ? service.move : service.fill
+        let fillsDestination=destination.map { stageTarget($0,frame:target) != nil } == true
+        let placement = fillsDestination ? service.fill : service.move
         placement(record,target,{ [weak self] in
             guard let self else { return false }
             let latest=self.environment.topology()
@@ -380,7 +391,7 @@ final class Engine {
                   !self.database.preferences.excludedBundles.contains(record.identity.bundle),
                   self.profile?.revision == revision,
                   let owner=latest.owner(of:record.frame),
-                  let currentTarget=followSavedDisplay ? self.stageDestination(record) : self.stageTarget(owner) else { return false }
+                  let currentTarget=followSavedDisplay ? self.stageDestination(record) : self.stageTarget(owner,frame:record.frame) else { return false }
             return currentTarget.close(to:target,tolerance:0.5)
         }) { [weak self] actual,error in
             guard let self else { return }
@@ -403,7 +414,7 @@ final class Engine {
         }
     }
     private func queueStageSave(_ record: AXRecord,target: Rect) {
-        guard let display=topology.owner(of:record.frame),let filled=stageTarget(display),
+        guard let display=topology.owner(of:record.frame),let filled=stageTarget(display,frame:record.frame),
               filled.close(to:target,tolerance:0.5),record.frame.close(to:target,tolerance:2),
               stagePermits(record),!storageFailed,profile?.locked != true,
               stageSaveQueue.count < 500 || stageSaveQueue[record.token] != nil else { return }
@@ -421,7 +432,7 @@ final class Engine {
             guard environment.frontPID() == record.pid,stagePermits(record),
                   !database.preferences.excludedBundles.contains(record.identity.bundle),
                   allRecords.contains(where:{$0.token == record.token && $0.frame.close(to:record.frame,tolerance:2)}),
-                  let display=topology.owner(of:record.frame),let target=stageTarget(display),
+                  let display=topology.owner(of:record.frame),let target=stageTarget(display,frame:record.frame),
                   record.frame.close(to:target,tolerance:2) else { continue }
             let role=matching.resolved.first(where:{$0.value == record.token})?.key
             if role == nil,profile?.windows.contains(where:{matching.ambiguous.contains($0.id) && $0.identity.bundle == record.identity.bundle}) == true {
@@ -500,8 +511,8 @@ final class Engine {
     func setPreferences(_ edit: (inout Preferences)->Void) {
         guard !busy,!storageFailed else { return }
         var next=database; edit(&next.preferences)
-        if database.preferences.stageFill && !next.preferences.stageFill { skipRestoreAfterModeOff=stageFocus }
-        if !database.preferences.stageFill && next.preferences.stageFill { skipRestoreAfterModeOff=nil }
+        if (database.preferences.stageFill && !next.preferences.stageFill) || (database.preferences.stagePortraitFill && !next.preferences.stagePortraitFill) { skipRestoreAfterModeOff=stageFocus }
+        if (!database.preferences.stageFill && next.preferences.stageFill) || (!database.preferences.stagePortraitFill && next.preferences.stagePortraitFill) { skipRestoreAfterModeOff=nil }
         let wasPaused=guardState.paused
         guardState.paused=true
         invalidate("设置已改变，重新核对")
@@ -666,7 +677,7 @@ final class Engine {
     func importBackup(_ url: URL) {
         guard !busy,!storageFailed else { return }
         do {
-            var db=try store.decode(url); db.preferences.autoRestore=false; db.preferences.autoRemember=false;db.preferences.stageFill=false
+            var db=try store.decode(url); db.preferences.autoRestore=false; db.preferences.autoRemember=false;db.preferences.stageFill=false;db.preferences.stagePortraitFill=false
             guardState.paused=true; invalidate("导入备份")
             persist(db,message:"备份已导入，自动恢复请重新确认") { [weak self] _ in self?.changed?() }
         }
@@ -683,7 +694,7 @@ final class Engine {
     }
     func report() -> String {
         let matching=Matcher.assign(profile?.windows ?? [],allRecords.map(\.live),bindings:bindings)
-        let screenLines=topology.displays.map { "\($0.name) [UUID \($0.id.prefix(8))…]: \(Int($0.frame.width))×\(Int($0.frame.height)) @ (\(Int($0.frame.x)),\(Int($0.frame.y)))；铺满留白 \(Int(database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:$0)] ?? StageFill.defaultInset)) pt\($0.frame.width > $0.frame.height ? "":"（非横屏，不铺满）")" }
+        let screenLines=topology.displays.map { "\($0.name) [UUID \($0.id.prefix(8))…]: \(Int($0.frame.width))×\(Int($0.frame.height)) @ (\(Int($0.frame.x)),\(Int($0.frame.y)))；铺满留白 \(Int(database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:$0)] ?? StageFill.defaultInset)) pt\($0.frame.width > $0.frame.height ? "":($0.frame.height > $0.frame.width ? "（竖屏横向撑满由独立开关控制）":"（正方形，不铺满）"))" }
         let windowLines=allRecords.sorted { $0.app < $1.app }.map { r in
             let owner=topology.owner(of:r.frame)?.name ?? "归属待确认"
             return "\(r.app) | \(owner) | (\(Int(r.frame.x)),\(Int(r.frame.y))) \(Int(r.frame.width))×\(Int(r.frame.height)) | \(candidates[r.token] != nil ? "已核对候选":r.usable && r.focused ? "核对中":"等待激活")"
@@ -695,6 +706,7 @@ final class Engine {
                  "匹配：\(matching.resolved.count)；歧义：\(matching.ambiguous.count)；待出现：\(matching.missing.count)",
                  "拖动自动记忆：\(database.preferences.autoRemember ? "开启":"关闭")；自动恢复：\(database.preferences.autoRestore ? "开启":"关闭")。不展开后台组。",
                  "台前调度横屏铺满：\(database.preferences.stageFill ? "开启":"关闭")；系统状态：\(environment.stageManagerEnabled().map { $0 ? "开启":"关闭" } ?? "未知（不铺满）")；默认留白100 pt，拖左边缘调整。",
+                 "竖屏横向撑满：\(database.preferences.stagePortraitFill ? "开启":"关闭")；保留纵向位置和高度，越界时夹回工作区。",
                  "子窗口铺满：\(database.preferences.stageFillChildren ? "开启":"关闭")；排除应用：\(database.preferences.stageExcludedApplications.count)；永久窗口规则：\(database.preferences.stageExcludedKinds.count)；临时窗口排除：\(stageSessionExclusions.count)。类型未知、对话框和浮动面板不铺满。",
                  "此版本尚未通过完整硬件与性能验收。", "\n显示器"]
         lines += screenLines

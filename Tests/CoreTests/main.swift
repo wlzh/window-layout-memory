@@ -179,6 +179,44 @@ test("oversized import rejected before decoding") {
     try rejects { _=try LayoutStore(directory:temp).decode(url) }
 }
 test("default auto restore is opt in") { try expect(!Preferences().autoRestore) }
+test("portrait mode is independently opt in and backward compatible") {
+    var p=try JSONDecoder().decode(Preferences.self,from:Data("{}".utf8))
+    try expect(!p.stagePortraitFill && !p.anyStageFill)
+    p.stagePortraitFill=true
+    try expect(p.anyStageFill && !p.stageFill)
+    try expect(try JSONDecoder().decode(Preferences.self,from:JSONEncoder().encode(p)) == p)
+}
+test("portrait target preserves vertical placement and shares inset") {
+    let d=Display(id:"p",name:"P",frame:Rect(-800,-200,800,1200),visible:Rect(-800,-175,800,1100))
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(-650,20,400,500)) == Rect(-700,20,700,500))
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(-650,20,400,500),inset:150) == Rect(-650,20,650,500))
+}
+test("portrait clamps only overflowing vertical geometry") {
+    let d=Display(id:"p",name:"P",frame:Rect(0,0,800,1200),visible:Rect(0,25,800,1100))
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(20,-100,400,500)) == Rect(100,25,700,500))
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(20,1000,400,500)) == Rect(100,625,700,500))
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(20,20,400,2000)) == Rect(100,25,700,1100))
+}
+test("portrait respects side dock and rejects invalid orientation") {
+    var d=Display(id:"p",name:"P",frame:Rect(0,0,800,1200),visible:Rect(140,25,600,1100))
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(20,80,400,500)) == Rect(140,80,600,500))
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(20,80,400,500),inset:Double.nan) == nil)
+    d.mirrored=true
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(20,80,400,500)) == nil)
+    d.mirrored=false;d.frame=Rect(0,0,1200,800)
+    try expect(StageFill.portraitTarget(display:d,frame:Rect(20,80,400,500)) == nil)
+}
+test("portrait geometry matrix stays in work area and remains idempotent") {
+    let d=Display(id:"p",name:"P",frame:Rect(-800,-300,800,1400),visible:Rect(-760,-275,720,1320))
+    for y in stride(from:-1000.0,through:1500.0,by:100) {
+        for height in [100.0,500,1320,2000] {
+            let target=StageFill.portraitTarget(display:d,frame:Rect(-600,y,400,height))!
+            try expect(target.x >= d.visible.x && target.x+target.width <= d.visible.x+d.visible.width)
+            try expect(target.y >= d.visible.y && target.y+target.height <= d.visible.y+d.visible.height)
+            try expect(StageFill.portraitTarget(display:d,frame:target) == target)
+        }
+    }
+}
 test("changed save atomically replaces existing file") {
     let store=LayoutStore(directory:temp.appendingPathComponent("replace"));var db=Database();try store.save(db)
     try db.replace(profile(),expectedRevision:nil);try store.save(db);try expect(try store.load()==db)

@@ -95,19 +95,22 @@ public struct Preferences: Codable, Equatable {
     public var autoObserve = true, autoRestore = false
     public var autoRemember = true
     public var stageFill = false
+    public var stagePortraitFill = false
+    public var anyStageFill: Bool { stageFill || stagePortraitFill }
     public var stageFillChildren = false
     public var stageExcludedKinds: [StageWindowRule] = []
     public var stageExcludedApplications: [String:String] = [:]
     public var stageInsets: [String:Double] = [:]
     public var excludedBundles: [String] = []
     public init() {}
-    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stageInsets, stageFillChildren, stageExcludedKinds, stageExcludedApplications }
+    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stagePortraitFill, stageInsets, stageFillChildren, stageExcludedKinds, stageExcludedApplications }
     public init(from decoder: Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         autoObserve=try c.decodeIfPresent(Bool.self,forKey:.autoObserve) ?? true
         autoRestore=try c.decodeIfPresent(Bool.self,forKey:.autoRestore) ?? false
         autoRemember=try c.decodeIfPresent(Bool.self,forKey:.autoRemember) ?? false
         stageFill=try c.decodeIfPresent(Bool.self,forKey:.stageFill) ?? false
+        stagePortraitFill=try c.decodeIfPresent(Bool.self,forKey:.stagePortraitFill) ?? false
         stageFillChildren=try c.decodeIfPresent(Bool.self,forKey:.stageFillChildren) ?? false
         stageExcludedKinds=try c.decodeIfPresent([StageWindowRule].self,forKey:.stageExcludedKinds) ?? []
         stageExcludedApplications=try c.decodeIfPresent([String:String].self,forKey:.stageExcludedApplications) ?? [:]
@@ -142,8 +145,17 @@ public enum StageFill {
     public static func isLeftEdge(_ frame: Rect, x: Double, y: Double) -> Bool {
         frame.valid && abs(x-frame.x) <= 12 && y > frame.y+40 && y < frame.y+frame.height-12
     }
+    public static func portraitTarget(display: Display, frame: Rect, inset: Double = defaultInset) -> Rect? {
+        guard display.frame.valid,display.visible.valid,frame.valid,!display.mirrored,
+              display.frame.height > display.frame.width,inset.isFinite,inset >= 0,
+              display.visible.width >= 320 else { return nil }
+        let left=min(max(display.frame.x+inset,display.visible.x),display.visible.x+display.visible.width-320)
+        let height=min(frame.height,display.visible.height)
+        let top=min(max(frame.y,display.visible.y),display.visible.y+display.visible.height-height)
+        return Rect(left,top,display.visible.x+display.visible.width-left,height)
+    }
     public static func learnedInset(origin: Rect, current: Rect, display: Display) -> Double? {
-        guard origin.valid,current.valid,display.frame.width > display.frame.height,
+        guard origin.valid,current.valid,display.frame.width != display.frame.height,
               abs(current.x-origin.x) >= 1,
               abs(current.y-origin.y) <= 4,abs(current.height-origin.height) <= 4,
               abs(current.x+current.width-origin.x-origin.width) <= 4 else { return nil }
