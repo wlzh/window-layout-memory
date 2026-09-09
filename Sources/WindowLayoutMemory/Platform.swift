@@ -4,8 +4,8 @@ import LayoutCore
 
 enum AppVersion {
     static var marketing: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.3.0" }
-    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "9" }
-    static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.5" }
+    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "10" }
+    static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.6" }
     static var label: String { "\(marketing)-\(channel) / build \(build)" }
 }
 
@@ -218,6 +218,7 @@ final class AXService: WindowService {
             guard permitted(),geometry(e)?.close(to:record.frame,tolerance:4) == true else {
                 DispatchQueue.main.async { completion(nil,"窗口焦点或几何已变化，已取消") }; return
             }
+            let bounds=DispatchQueue.main.sync { displaysNow().owner(of:record.frame)?.frame }
             var positionSettable=DarwinBoolean(false),sizeSettable=DarwinBoolean(false)
             guard AXUIElementIsAttributeSettable(e,kAXPositionAttribute as CFString,&positionSettable) == .success,
                   AXUIElementIsAttributeSettable(e,kAXSizeAttribute as CFString,&sizeSettable) == .success,
@@ -230,6 +231,27 @@ final class AXService: WindowService {
             },read:{ self.geometry(e) },position:{
                 var point=CGPoint(x:target.x,y:target.y)
                 return AXUIElementSetAttributeValue(e,kAXPositionAttribute as CFString,AXValueCreate(.cgPoint,&point)!) == .success
+            },prepare:{
+                guard let bounds,permitted(),target.x >= bounds.x,target.y >= bounds.y,
+                      target.x+target.width <= bounds.x+bounds.width+2,
+                      target.y+target.height <= bounds.y+bounds.height+2,
+                      let actual=self.geometry(e),
+                      !SizeFirstPlacement.fitsAtCurrentOrigin(actual,target:target,bounds:bounds) else { return false }
+                // AXPress on the green button enters full screen. Only use an advertised zoom action.
+                for attribute in [kAXZoomButtonAttribute, "AXFullScreenButton"] {
+                    guard let raw=self.value(e,attribute),CFGetTypeID(raw) == AXUIElementGetTypeID() else { continue }
+                    let button=raw as! AXUIElement
+                    AXUIElementSetMessagingTimeout(button,0.15)
+                    var rawActions: CFArray?
+                    guard AXUIElementCopyActionNames(button,&rawActions) == .success,
+                          let actions=rawActions as? [String],
+                          let action=SizeFirstPlacement.nativeZoomAction(in:actions),permitted() else { continue }
+                    return AXUIElementPerformAction(button,action as CFString) == .success
+                }
+                return false
+            },prepared:{ actual in
+                guard let bounds else { return false }
+                return SizeFirstPlacement.fitsAtCurrentOrigin(actual,target:target,bounds:bounds)
             },schedule:{ action in
                 self.queue.asyncAfter(deadline:.now()+0.15,execute:action)
             },completion:{ actual,error in

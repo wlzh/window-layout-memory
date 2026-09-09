@@ -97,10 +97,11 @@ public struct Preferences: Codable, Equatable {
     public var stageFill = false
     public var stageFillChildren = false
     public var stageExcludedKinds: [StageWindowRule] = []
+    public var stageExcludedApplications: [String:String] = [:]
     public var stageInsets: [String:Double] = [:]
     public var excludedBundles: [String] = []
     public init() {}
-    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stageInsets, stageFillChildren, stageExcludedKinds }
+    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stageInsets, stageFillChildren, stageExcludedKinds, stageExcludedApplications }
     public init(from decoder: Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         autoObserve=try c.decodeIfPresent(Bool.self,forKey:.autoObserve) ?? true
@@ -109,6 +110,7 @@ public struct Preferences: Codable, Equatable {
         stageFill=try c.decodeIfPresent(Bool.self,forKey:.stageFill) ?? false
         stageFillChildren=try c.decodeIfPresent(Bool.self,forKey:.stageFillChildren) ?? false
         stageExcludedKinds=try c.decodeIfPresent([StageWindowRule].self,forKey:.stageExcludedKinds) ?? []
+        stageExcludedApplications=try c.decodeIfPresent([String:String].self,forKey:.stageExcludedApplications) ?? [:]
         stageInsets=try c.decodeIfPresent([String:Double].self,forKey:.stageInsets) ?? [:]
         excludedBundles=try c.decodeIfPresent([String].self,forKey:.excludedBundles) ?? []
     }
@@ -227,6 +229,10 @@ public struct Database: Codable, Equatable {
     public init() {}
     public func validate() throws {
         guard schemaVersion == 1 else { throw CoreError.invalid("Unsupported schema") }
+        guard preferences.stageExcludedApplications.count <= 200,
+              preferences.stageExcludedApplications.allSatisfy({ entry in
+                  [entry.key,entry.value].allSatisfy { !$0.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty && $0.utf8.count <= 1024 }
+              }) else { throw CoreError.invalid("Invalid stage application exclusions") }
         guard preferences.stageExcludedKinds.count <= 200,
               preferences.stageExcludedKinds.allSatisfy(\.valid),
               Set(preferences.stageExcludedKinds).count == preferences.stageExcludedKinds.count else {
