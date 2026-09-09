@@ -241,7 +241,7 @@ final class Engine {
                 let userMoved=learning.permits(record.token,now:now,pointerDown:false,stable:true,
                     eligible:gestureOrigins[record.token].map { !$0.close(to:record.frame,tolerance:0.5) } == true)
                 if stageEnabled,let owner=topology.owner(of:record.frame),
-                   let target=stageTarget(owner) {
+                   let target=stageDestination(record) {
                     candidates[record.token]=nil
                     if stageFocus != record.token { stageFocus=record.token;stageAttempted.remove(record.token) }
                     if userMoved {
@@ -255,7 +255,7 @@ final class Engine {
                         learning.discard(record.token);gestureOrigins[record.token]=nil;leftEdgeGestures.remove(record.token)
                     } else if !stageAttempted.contains(record.token) {
                         stageAttempted.insert(record.token)
-                        applyStageFill(record,target:target)
+                        applyStageFill(record,target:target,followSavedDisplay:true)
                     }
                     continue
                 }
@@ -288,6 +288,24 @@ final class Engine {
         return StageFill.target(display:environment.stageDisplay(display),
             inset:database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:display)] ?? 200)
     }
+    // Saved identity chooses the screen; fill only changes geometry on that screen.
+    private func stageDestination(_ record: AXRecord) -> Rect? {
+        guard database.preferences.stageFill,environment.stageManagerEnabled() == true,
+              let current=topology.owner(of:record.frame) else { return nil }
+        if database.preferences.autoRestore,let profile {
+            let matching=Matcher.assign(profile.windows,allRecords.map(\.live),bindings:bindings)
+            if let role=matching.resolved.first(where:{ $0.value == record.token })?.key,
+               let saved=profile.windows.first(where:{ $0.id == role }),
+               let destination=topology.displays.first(where:{ $0.id == saved.displayID }) {
+                if let filled=stageTarget(destination) { return filled }
+                // A portrait destination restores the saved frame, never landscape fill.
+                if current.id != destination.id { return saved.target(in:topology) }
+                return nil
+            }
+        }
+        // Unknown or ambiguous windows may fill locally, but never guess another screen.
+        return stageTarget(current)
+    }
     private func rememberStageInset(_ inset: Double, display: Display, record: AXRecord) {
         guard !storageFailed else { return }
         let key=StageFill.insetKey(topology:topology,display:display)
@@ -302,9 +320,9 @@ final class Engine {
         if next == database { finish(true) }
         else { persist(next,message:"已记忆此组合/显示器的左侧留白：\(Int(inset)) pt",completion:finish) }
     }
-    private func applyStageFill(_ record: AXRecord, target: Rect) {
+    private func applyStageFill(_ record: AXRecord, target: Rect, followSavedDisplay: Bool = false) {
         guard !record.frame.close(to:target,tolerance:0.5),!moving.contains(record.token) else { return }
-        let generation=guardState.generation,key=topology.key
+        let generation=guardState.generation,key=topology.key,revision=profile?.revision
         moving.insert(record.token);suppressUntil[record.token]=environment.now()+2
         candidates[record.token]=nil;learning.discard(record.token);gestureOrigins[record.token]=nil
         service.move(record,to:target,allowed:{ [weak self] in
@@ -313,14 +331,16 @@ final class Engine {
             guard self.guardState.permits(generation,key:key),self.environment.trusted(),latest.key == key,
                   !self.environment.pointerDown(),self.environment.frontPID() == record.pid,
                   !self.database.preferences.excludedBundles.contains(record.identity.bundle),
-                  let owner=latest.owner(of:record.frame),let currentTarget=self.stageTarget(owner) else { return false }
+                  self.profile?.revision == revision,
+                  let owner=latest.owner(of:record.frame),
+                  let currentTarget=followSavedDisplay ? self.stageDestination(record) : self.stageTarget(owner) else { return false }
             return currentTarget.close(to:target,tolerance:0.5)
         }) { [weak self] actual,error in
             guard let self else { return }
             self.moving.remove(record.token)
             guard self.guardState.generation == generation else { return }
             self.issues["stage:\(record.token)"]=error
-            self.status=error ?? "已铺满横屏工作区：\(record.app)；原布局未修改"
+            self.status=error ?? "已按目标显示器核验窗口：\(record.app)；原布局未修改"
             if let actual,let index=self.records[record.pid]?.firstIndex(where:{ $0.token == record.token }) {
                 self.records[record.pid]?[index].frame=actual
             }

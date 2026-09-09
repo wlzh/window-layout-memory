@@ -4,7 +4,7 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 面向 macOS 的窗口布局记忆应用。目标是保留用户在单屏、双屏、多屏环境下分别调整好的窗口大小、位置与显示器归属，在显示器切换和重新登录后恢复，不让系统临时重排覆盖用户偏好。
 
-**v0.3.0-preview.2：开发预览，不是稳定版。** 新增原生[关于窗口](docs/ABOUT.md)，集中展示版本、作者、网站、GitHub、文档及MIT协议，适配明暗主题，关闭释放资源。包含[台前调度横屏自动铺满](docs/STAGE_FILL.md)：默认关闭，激活横屏前台窗口后避开菜单栏/Dock铺满，左侧默认200 pt且可通过左边缘拖动调整。按完整显示器组合和显示器ID记忆留白，不覆盖原布局。包含[只读布局预览](docs/PREVIEW.md)，关闭释放预览资源，不新增周期性扫描。尚未完整满足全部实机门禁。
+**v0.3.0-preview.3：开发预览，不是稳定版。** 新增原生[关于窗口](docs/ABOUT.md)，集中展示版本、作者、网站、GitHub、文档及MIT协议，适配明暗主题，关闭释放资源。包含[台前调度横屏自动铺满](docs/STAGE_FILL.md)：默认关闭，激活横屏前台窗口后避开菜单栏/Dock铺满，左侧默认200 pt且可通过左边缘拖动调整。按完整显示器组合和显示器ID记忆留白，不覆盖原布局。包含[只读布局预览](docs/PREVIEW.md)，关闭释放预览资源，不新增周期性扫描。尚未完整满足全部实机门禁。
 
 ![布局预览，合成测试数据，不是真实用户窗口](docs/assets/layout-preview.png)
 
@@ -16,7 +16,7 @@ Remember your workspace, separately for every display setup. Native Swift/AppKit
 
 ## Build and use
 
-**源码与安装版有区别：** main包含尚未发行的保护期漏触发修复（c5a2836），当前公开发行及本机安装仍为build 6，不包含该补丁。已发布版本213项检查、修复源码215项检查，不能混用。当前版本、授权时间线和未解决问题统一见[状态总览](docs/STATUS.md)。
+**本版修复：** 自动恢复开启且唯一匹配时，先按保存记录确定显示器，再对目标横屏铺满；竖屏恢复原坐标。保护期漏激活修复也包含在build 7。未记录或有歧义的窗口不猜测跨屏。当前安装、验证与未解决问题见[状态总览](docs/STATUS.md)。
 
 ```sh
 ruby scripts/check-docs.rb
@@ -35,7 +35,7 @@ zsh scripts/package-release.sh
 
 测试包含纯核心回归与注入假窗口服务的Engine集成回归；覆盖率、用例数及实机状态见[测试报告](docs/TESTING.md)。核心行覆盖**不包括Engine、AX、UI**，不得解读为全项目覆盖率。10分钟代表性负载及8小时驻留未通过前，不宣称CPU/内存预算达标。
 
-详见 [使用指南](docs/USER_GUIDE.md)、[测试报告](docs/TESTING.md)、[兼容性](docs/COMPATIBILITY.md)、[发行说明](docs/releases/v0.3.0-preview.2.md)。
+详见 [使用指南](docs/USER_GUIDE.md)、[测试报告](docs/TESTING.md)、[兼容性](docs/COMPATIBILITY.md)、[发行说明](docs/releases/v0.3.0-preview.3.md)。
 
 ## Planned scope
 
@@ -62,7 +62,7 @@ Do not commit real window titles, document paths, display serial numbers, screen
 
 ## Version and license
 
-Latest published preview: **0.3.0-preview.2**, build 6. Unreleased source changes are listed in [CHANGELOG](CHANGELOG.md); see [current status](docs/STATUS.md).
+Latest published preview: **0.3.0-preview.3**, build 7. Unreleased source changes are listed in [CHANGELOG](CHANGELOG.md); see [current status](docs/STATUS.md).
 
 Author: [X @wlzh](https://x.com/wlzh). Website: [869hr.uk](https://869hr.uk).
 
