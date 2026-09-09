@@ -331,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     func updatePanel() {
         guard let textView else { return }
-        textView.string=engine.report()+"\n\n使用：\n1. 菜单中授权辅助功能，再点重新核对。\n2. 依次激活需要记忆的窗口并停留约2秒。\n3. 点击保存候选，建立当前屏幕组合基准。\n4. 自动恢复默认关闭；确认基准后自行启用。\n\n普通桌面与台前调度均走相同保护路径。\n未激活窗口、同标题歧义、应用不支持通知时不会猜测。\n真实多屏/重启/8小时性能验收尚未完成，不应依赖此版作唯一布局备份。\n\nMIT License · Copyright 2026 wlzh\nhttps://github.com/wlzh/window-layout-memory"
+        textView.string=engine.report()+"\n\n使用：\n1. 授权辅助功能后切换目标应用；也可手动重新核对。\n2. 依次激活需要记忆的窗口并停留约2秒。\n3. 点击保存候选，建立当前屏幕组合基准。\n4. 自动恢复默认关闭；确认基准后自行启用。\n\n普通桌面与台前调度均走相同保护路径。\n未激活窗口、同标题歧义、应用不支持通知时不会猜测。\n真实多屏/重启/8小时性能验收尚未完成，不应依赖此版作唯一布局备份。\n\nMIT License · Copyright 2026 wlzh\nhttps://github.com/wlzh/window-layout-memory"
     }
     @objc func exportBackup() {
         let panel=NSSavePanel(); panel.nameFieldStringValue="window-layout-backup.json"
