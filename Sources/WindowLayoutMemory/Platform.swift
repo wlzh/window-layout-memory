@@ -4,8 +4,8 @@ import LayoutCore
 
 enum AppVersion {
     static var marketing: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.3.0" }
-    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "15" }
-    static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.9" }
+    static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "16" }
+    static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.10" }
     static var label: String { "\(marketing)-\(channel) / build \(build)" }
 }
 
@@ -233,7 +233,7 @@ final class AXService: WindowService {
             },write:{ enabled in
                 AXUIElementSetAttributeValue(application,"AXEnhancedUserInterface" as CFString,enabled ? kCFBooleanTrue:kCFBooleanFalse) == .success
             })
-            SizeFirstPlacement.run(target:target,allowed:permitted,resize:{
+            SizeFirstPlacement.run(target:target,positionFirst:true,allowed:permitted,resize:{
                 var size=CGSize(width:target.width,height:target.height)
                 return AXUIElementSetAttributeValue(e,kAXSizeAttribute as CFString,AXValueCreate(.cgSize,&size)!) == .success
             },read:{ self.geometry(e) },position:{

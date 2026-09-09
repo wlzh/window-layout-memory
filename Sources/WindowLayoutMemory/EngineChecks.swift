@@ -405,7 +405,7 @@ func runEngineChecks() -> Int32 {
         db.preferences.stageExcludedApplications=["test.fixture":"Synthetic"]
         try appStore.save(db)
         let fake=FixtureService(),excluded=Engine(service:fake,store:appStore,environment:appEnv)
-        pump(2.2)
+        awaitCondition { fake.scans > 0 && !excluded.busy && !excluded.guardState.settling }
         check("saved app exclusion blocks fill after engine restart",fake.moves == 0 && fake.scans > 0)
         check("app exclusion keeps ordinary app observation preferences intact",excluded.database.preferences.excludedBundles.isEmpty && excluded.candidates.isEmpty)
         let delegate=AppDelegate();delegate.engine=excluded
@@ -414,7 +414,10 @@ func runEngineChecks() -> Int32 {
         check("app menu includes persisted stopped app as checked",submenu?.items.contains { $0.toolTip == "test.fixture" && $0.state == .on && $0.title == "Synthetic · 未运行" } == true)
         check("app menu includes file picker entry",submenu?.items.contains { $0.title == "从文件选择应用…" } == true)
         excluded.setStageApplicationExclusion(bundle:"test.fixture",name:"Synthetic",excluded:false)
-        awaitCondition { fake.moves > 0 }
+        awaitCondition { !excluded.busy && excluded.database.preferences.stageExcludedApplications["test.fixture"] == nil && fake.record.frame == Rect(100,0,1100,900) }
+        if fake.record.frame != Rect(100,0,1100,900) {
+            print("EXCLUSION_DIAGNOSTIC moves=\(fake.moves) scans=\(fake.scans) busy=\(excluded.busy) paused=\(excluded.guardState.paused) status=\(excluded.status) frame=\(fake.record.frame)")
+        }
         check("removing app exclusion re enables fill",fake.record.frame == Rect(100,0,1100,900))
         excluded.setStageApplicationExclusion(bundle:"test.fixture",name:"Synthetic",excluded:true);pump(2.2)
         let loaded=try appStore.load()
