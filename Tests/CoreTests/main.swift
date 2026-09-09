@@ -477,9 +477,9 @@ test("stage fill defaults off and old preferences migrate safely") {
     let p=try JSONDecoder().decode(Preferences.self,from:Data("{}".utf8))
     try expect(!p.stageFill && p.stageInsets.isEmpty && !Preferences().stageFill)
 }
-test("stage target reserves 200 points and avoids menu and bottom dock") {
+test("stage target reserves 100 points and avoids menu and bottom dock") {
     let d=Display(id:"a",name:"a",frame:Rect(0,0,1512,982),visible:Rect(0,38,1512,880),primary:true)
-    try expect(StageFill.target(display:d) == Rect(200,38,1312,880))
+    try expect(StageFill.target(display:d) == Rect(100,38,1412,880))
     try expect(StageFill.target(display:d,inset:150) == Rect(150,38,1362,880))
 }
 test("stage target supports hidden dock full bottom and negative origin") {
@@ -538,6 +538,78 @@ test("stage hidden Dock policy handles all edges without removing menu bar") {
     try expect(StageFill.workArea(d,dockHidden:false,orientation:"bottom") == d)
     try expect(StageFill.workArea(d,dockHidden:nil,orientation:"bottom") == d)
     try expect(StageFill.workArea(d,dockHidden:true,orientation:"unknown") == d)
+}
+test("size first placement gates positioning on verified size") {
+    for mode in ["success","delayed","ignored","clamped","missing","resizeError","cancel","positionError","positionIgnored"] {
+        let target=Rect(100,24,1100,876)
+        var actual: Rect?=Rect(400,200,500,400)
+        var events:[String]=[],jobs:[()->Void]=[]
+        var completed=0,reads=0,error:String?
+        SizeFirstPlacement.run(target:target,allowed:{ mode != "cancel" || events.isEmpty },resize:{
+            events.append("size")
+            if ["success","positionError","positionIgnored","cancel"].contains(mode) { actual=Rect(400,200,1100,876) }
+            if mode == "clamped" { actual=Rect(400,200,1000,876) }
+            if mode == "missing" { actual=nil }
+            return mode != "resizeError"
+        },read:{
+            reads+=1
+            if mode == "delayed",reads == 3 { actual=Rect(400,200,1100,876) }
+            return actual
+        },position:{
+            events.append("position")
+            if mode != "positionIgnored" { actual=target }
+            return mode != "positionError"
+        },schedule:{ jobs.append($0) },completion:{ _,message in completed+=1;error=message })
+        var ticks=0
+        while !jobs.isEmpty && ticks < 10 { ticks+=1; jobs.removeFirst()() }
+        try expect(completed == 1 && jobs.isEmpty && ticks <= 5)
+        if ["success","delayed","positionError","positionIgnored"].contains(mode) {
+            try expect(events == ["size","position"])
+        } else { try expect(events == ["size"]) }
+        try expect((error == nil) == ["success","delayed"].contains(mode))
+    }
+}
+test("stage independent windows are not classified by count title or size") {
+    try expect(StageWindowTraits().permits(includeChildren:false))
+    try expect(StageWindowTraits().permits(includeChildren:true))
+}
+test("stage child option permits only known standard child windows") {
+    for parent in ["AXWindow","AXSheet"] {
+        let traits=StageWindowTraits(parentRole:parent)
+        try expect(traits.isChild && !traits.permits(includeChildren:false) && traits.permits(includeChildren:true))
+    }
+    for parent in ["","AXGroup","unknown"] {
+        try expect(!StageWindowTraits(parentRole:parent).permits(includeChildren:true))
+    }
+    for subrole in ["AXDialog","AXFloatingWindow","AXSystemDialog",""] {
+        try expect(!StageWindowTraits(subrole:subrole).permits(includeChildren:true))
+    }
+    try expect(!StageWindowTraits(role:"AXSheet").permits(includeChildren:true))
+    try expect(!StageWindowTraits(modal:true).permits(includeChildren:true))
+}
+test("stage child preferences migrate from older schema and roundtrip") {
+    let old=try JSONDecoder().decode(Preferences.self,from:Data("{\"stageFill\":true,\"stageInsets\":{\"screen\":150}}".utf8))
+    try expect(old.stageFill && !old.stageFillChildren && old.stageExcludedKinds.isEmpty && old.stageInsets["screen"] == 150)
+    var db=Database();db.preferences=old;db.preferences.stageFillChildren=true
+    db.preferences.stageExcludedKinds=[StageWindowRule(bundle:"app",identifier:"viewer",role:"AXWindow",subrole:"AXStandardWindow")]
+    let restored=try JSONDecoder().decode(Database.self,from:JSONEncoder().encode(db))
+    try restored.validate();try expect(restored == db)
+}
+test("stage persistent exclusion matches exact app identifier and role only") {
+    let rule=StageWindowRule(bundle:"app",identifier:"viewer",role:"AXWindow",subrole:"AXStandardWindow")
+    try expect(rule.matches(WindowIdentity(bundle:"app",title:"arbitrary",identifier:"viewer"),traits:StageWindowTraits()))
+    try expect(!rule.matches(WindowIdentity(bundle:"other",identifier:"viewer"),traits:StageWindowTraits()))
+    try expect(!rule.matches(WindowIdentity(bundle:"app",identifier:"main"),traits:StageWindowTraits()))
+    try expect(!rule.matches(WindowIdentity(bundle:"app",identifier:"viewer"),traits:StageWindowTraits(subrole:"AXDialog")))
+}
+test("stage exclusion storage rejects empty duplicate oversized and excessive rules") {
+    let rule=StageWindowRule(bundle:"app",identifier:"viewer",role:"AXWindow",subrole:"AXStandardWindow")
+    var bad=rule;bad.identifier=" "
+    var long=rule;long.identifier=String(repeating:"x",count:1025)
+    for rules in [[bad],[long],[rule,rule],(0...200).map { StageWindowRule(bundle:"app",identifier:"\($0)",role:"AXWindow",subrole:"AXStandardWindow") }] {
+        var db=Database();db.preferences.stageExcludedKinds=rules
+        do { try db.validate();try expect(false) } catch CoreError.invalid { try expect(true) }
+    }
 }
 print("CORE_TESTS passed=\(passed) failed=\(failed) assertions=\(assertions)")
 print("Coverage percentage: NOT MEASURED. AX, UI, Stage Manager, hardware and performance tests: NOT RUN.")

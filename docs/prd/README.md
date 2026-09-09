@@ -4,6 +4,7 @@
 
 | 目标版本 | 状态 | 文档 | 发布状态 |
 | --- | --- | --- | --- |
+| v0.3.0-preview.5 | 子窗口策略、铺满排除、默认100 pt | [PRD](v0.3.0-preview.5/prd.md)、[设计](v0.3.0-preview.5/design.md)、[技术](v0.3.0-preview.5/dev.md)、[计划](v0.3.0-preview.5/plan.md) | build 9；最新验证与安装见总览 |
 | v0.3.0 | 横屏铺满、动态留白、关于窗口 | [PRD](v0.3.0/prd.md)、[设计](v0.3.0/design.md)、[技术](v0.3.0/dev.md)、[计划](v0.3.0/plan.md) | preview.3 / build 7修复显示器归属及保护期；发行/安装状态见总览，微信尺寸偏差未解决 |
 | v0.2.0 | 只读预览与拖动漏记修复 | [PRD](v0.2.0/prd.md)、[设计](v0.2.0/design.md)、[技术](v0.2.0/dev.md)、[计划](v0.2.0/plan.md) | preview.2 / build 4历史发行；不代表全部实机验收 |
 | v0.1.0 | 需求/技术已确认，开发预览已实现 | [PRD](v0.1.0/prd.md)、[设计](v0.1.0/design.md)、[技术](v0.1.0/dev.md)、[计划](v0.1.0/plan.md) | preview.2；核心及Engine集成已测，完整验收未关闭 |
