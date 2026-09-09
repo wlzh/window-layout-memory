@@ -357,6 +357,43 @@ func runEngineChecks() -> Int32 {
         check("system stage off performs ordinary restore despite master on",fake.record.frame == db.profiles[0].windows[0].frame)
         child.togglePause()
     } catch { failed+=1;print("FAIL ENGINE child policy: \(error)") }
+    do {
+        topology=Topology([display]);trusted=true;pointer=false
+        var appEnv=env;appEnv.stageManagerEnabled={ true };appEnv.stageDisplay={ $0 }
+        let appStore=LayoutStore(directory:root.appendingPathComponent("app-exclusion"))
+        var db=Database();db.preferences.stageFill=true
+        db.preferences.stageExcludedApplications=["test.fixture":"Synthetic"]
+        try appStore.save(db)
+        let fake=FixtureService(),excluded=Engine(service:fake,store:appStore,environment:appEnv)
+        pump(2.2)
+        check("saved app exclusion blocks fill after engine restart",fake.moves == 0 && fake.scans > 0)
+        check("app exclusion keeps ordinary app observation preferences intact",excluded.database.preferences.excludedBundles.isEmpty && excluded.candidates.isEmpty)
+        let delegate=AppDelegate();delegate.engine=excluded
+        let menu=NSMenu();menu.autoenablesItems=false;delegate.menuWillOpen(menu)
+        let submenu=menu.items.first { $0.title == "横屏铺满排除应用" }?.submenu
+        check("app menu includes persisted stopped app as checked",submenu?.items.contains { $0.title.contains("test.fixture") && $0.state == .on } == true)
+        check("app menu includes file picker entry",submenu?.items.contains { $0.title == "从文件选择应用…" } == true)
+        excluded.setStageApplicationExclusion(bundle:"test.fixture",name:"Synthetic",excluded:false)
+        awaitCondition { fake.moves > 0 }
+        check("removing app exclusion re enables fill",fake.record.frame == Rect(100,0,1100,900))
+        excluded.setStageApplicationExclusion(bundle:"test.fixture",name:"Synthetic",excluded:true);pump(2.2)
+        let loaded=try appStore.load()
+        check("selected app persists by bundle not path",loaded.preferences.stageExcludedApplications == ["test.fixture":"Synthetic"])
+        var other=fake.record;other.identity.bundle="other.app"
+        check("app exclusion does not affect other bundle",excluded.stagePermits(other))
+        excluded.setStageApplicationExclusion(bundle:"",name:"Bad",excluded:true)
+        check("invalid app identity is rejected",excluded.database.preferences.stageExcludedApplications.count == 1)
+        let appURL=root.appendingPathComponent("Fixture.app"),contents=appURL.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at:contents,withIntermediateDirectories:true)
+        let info:[String:String]=["CFBundleIdentifier":"test.file.app","CFBundleName":"File App","CFBundlePackageType":"APPL"]
+        try PropertyListSerialization.data(fromPropertyList:info,format:.xml,options:0).write(to:contents.appendingPathComponent("Info.plist"))
+        let selected=AppDelegate.stageApplication(at:appURL)
+        check("file app selection extracts stable bundle identity",selected?.bundle == "test.file.app" && selected?.name == "File App")
+        check("file selection rejects missing and non app bundles",AppDelegate.stageApplication(at:root) == nil && AppDelegate.stageApplication(at:root.appendingPathComponent("Missing.app")) == nil)
+        let picker=AppDelegate.stageApplicationPanel()
+        check("native file picker restricts selection to application bundles",picker.allowedContentTypes.first?.identifier == "com.apple.application-bundle" && picker.canChooseFiles && !picker.canChooseDirectories && !picker.allowsMultipleSelection && !picker.treatsFilePackagesAsDirectories)
+        picker.close();excluded.togglePause()
+    } catch { failed+=1;print("FAIL ENGINE application exclusions: \(error)") }
     print("ENGINE_TESTS passed=\(passed) failed=\(failed); injected adapter, not physical AX or Stage Manager validation")
     return failed == 0 ? 0:1
 }

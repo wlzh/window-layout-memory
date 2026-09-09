@@ -432,6 +432,7 @@ final class Engine {
     }
     func stagePermits(_ record: AXRecord) -> Bool {
         record.stageTraits.permits(includeChildren:database.preferences.stageFillChildren) &&
+        database.preferences.stageExcludedApplications[record.identity.bundle] == nil &&
         !stageSessionExclusions.contains(record.token) &&
         !database.preferences.stageExcludedKinds.contains { $0.matches(record.identity,traits:record.stageTraits) }
     }
@@ -452,6 +453,14 @@ final class Engine {
             stageSessionExclusions.insert(token)
         }
         invalidate("窗口铺满排除已更新");displayChanged()
+    }
+    func setStageApplicationExclusion(bundle: String, name: String, excluded: Bool) {
+        guard !bundle.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,bundle.utf8.count <= 1024,
+              !name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,name.utf8.count <= 1024 else { return }
+        guard !excluded || database.preferences.stageExcludedApplications[bundle] != nil || database.preferences.stageExcludedApplications.count < 200 else {
+            status="铺满排除应用已达200个上限";changed?();return
+        }
+        setPreferences { $0.stageExcludedApplications[bundle]=excluded ? name:nil }
     }
     func toggleLock() {
         guard var p=profile,!busy else { return }
@@ -605,7 +614,7 @@ final class Engine {
                  "匹配：\(matching.resolved.count)；歧义：\(matching.ambiguous.count)；待出现：\(matching.missing.count)",
                  "拖动自动记忆：\(database.preferences.autoRemember ? "开启":"关闭")；自动恢复：\(database.preferences.autoRestore ? "开启":"关闭")。不展开后台组。",
                  "台前调度横屏铺满：\(database.preferences.stageFill ? "开启":"关闭")；系统状态：\(environment.stageManagerEnabled().map { $0 ? "开启":"关闭" } ?? "未知（不铺满）")；默认留白100 pt，拖左边缘调整。",
-                 "子窗口铺满：\(database.preferences.stageFillChildren ? "开启":"关闭")；永久排除规则：\(database.preferences.stageExcludedKinds.count)；临时排除：\(stageSessionExclusions.count)。类型未知、对话框和浮动面板不铺满。",
+                 "子窗口铺满：\(database.preferences.stageFillChildren ? "开启":"关闭")；排除应用：\(database.preferences.stageExcludedApplications.count)；永久窗口规则：\(database.preferences.stageExcludedKinds.count)；临时窗口排除：\(stageSessionExclusions.count)。类型未知、对话框和浮动面板不铺满。",
                  "此版本尚未通过完整硬件与性能验收。", "\n显示器"]
         lines += screenLines
         lines.append("\n窗口（不含标题与路径）")

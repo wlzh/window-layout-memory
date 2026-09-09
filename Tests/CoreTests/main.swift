@@ -611,6 +611,58 @@ test("stage exclusion storage rejects empty duplicate oversized and excessive ru
         do { try db.validate();try expect(false) } catch CoreError.invalid { try expect(true) }
     }
 }
+test("native zoom never substitutes press or full screen actions") {
+    try expect(SizeFirstPlacement.nativeZoomAction(in:["AXPress","AXFullScreen","AXShowMenu"]) == nil)
+    try expect(SizeFirstPlacement.nativeZoomAction(in:["AXPress","AXZoomWindow"]) == "AXZoomWindow")
+    try expect(SizeFirstPlacement.nativeZoomAction(in:[]) == nil)
+}
+test("native zoom preparation requires readable geometry and room at current origin") {
+    let target=Rect(-1820,25,1820,1055),bounds=Rect(-1920,0,1920,1080)
+    try expect(!SizeFirstPlacement.fitsAtCurrentOrigin(Rect(-1639,102,1639,978),target:target,bounds:bounds))
+    try expect(SizeFirstPlacement.fitsAtCurrentOrigin(Rect(-1920,25,1920,1055),target:target,bounds:bounds))
+    try expect(!SizeFirstPlacement.fitsAtCurrentOrigin(nil,target:target,bounds:bounds))
+    try expect(!SizeFirstPlacement.fitsAtCurrentOrigin(Rect(0,25,1000,900),target:target,bounds:bounds))
+}
+test("native preparation is one shot bounded and cancellable") {
+    for mode in ["success","unsupported","noSpace","cancel","secondResizeIgnored","delayed"] {
+        let target=Rect(100,25,1100,875),bounds=Rect(0,0,1200,900)
+        var frame=Rect(300,100,900,800),events:[String]=[],jobs:[()->Void]=[]
+        var done=0,error:String?,resizeCount=0,readsAfterZoom=0,zoomed=false
+        SizeFirstPlacement.run(target:target,allowed:{ !(mode == "cancel" && zoomed) },resize:{
+            events.append("size");resizeCount+=1
+            if resizeCount == 2 && mode != "secondResizeIgnored" { frame.width=1100;frame.height=875 }
+            return true
+        },read:{
+            if zoomed { readsAfterZoom+=1 }
+            if mode == "delayed",readsAfterZoom == 3 { frame=Rect(0,25,1200,875) }
+            return frame
+        },position:{ events.append("position");frame=target;return true },prepare:{
+            events.append("zoom");zoomed=true
+            if mode == "unsupported" { return false }
+            if mode != "noSpace" && mode != "delayed" { frame=Rect(0,25,1200,875) }
+            return true
+        },prepared:{ SizeFirstPlacement.fitsAtCurrentOrigin($0,target:target,bounds:bounds) },schedule:{ jobs.append($0) },completion:{ _,message in done+=1;error=message })
+        var ticks=0
+        while !jobs.isEmpty && ticks < 20 { ticks+=1;jobs.removeFirst()() }
+        try expect(done == 1 && jobs.isEmpty && ticks <= 13)
+        try expect(events.filter { $0 == "zoom" }.count == 1)
+        if ["success","delayed"].contains(mode) {
+            try expect(events == ["size","zoom","size","position"] && frame == target && error == nil)
+        } else { try expect(!events.contains("position") && error != nil) }
+    }
+}
+test("stage app exclusions migrate persist and validate independently") {
+    let old=try JSONDecoder().decode(Preferences.self,from:Data("{}".utf8))
+    try expect(old.stageExcludedApplications.isEmpty)
+    var db=Database();db.preferences.stageExcludedApplications=["app.viewer":"Viewer"]
+    let decoded=try JSONDecoder().decode(Database.self,from:JSONEncoder().encode(db))
+    try decoded.validate();try expect(decoded == db && decoded.preferences.excludedBundles.isEmpty)
+    let excessive=Dictionary(uniqueKeysWithValues:(0...200).map { ("app.\($0)","App") })
+    for entries in [["":"name"],["app":" "],["app":String(repeating:"x",count:1025)],excessive] {
+        db.preferences.stageExcludedApplications=entries
+        do { try db.validate();try expect(false) } catch CoreError.invalid { try expect(true) }
+    }
+}
 print("CORE_TESTS passed=\(passed) failed=\(failed) assertions=\(assertions)")
 print("Coverage percentage: NOT MEASURED. AX, UI, Stage Manager, hardware and performance tests: NOT RUN.")
 exit(failed==0 ? 0:1)

@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import ServiceManagement
 import LayoutCore
+import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var engine: Engine!
@@ -68,6 +69,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         let exceptionItem=add(menu,"铺满排除",nil);exceptionItem.submenu=exceptions;exceptionItem.isEnabled=true
+        let apps=NSMenu()
+        var listed=Set<String>()
+        for app in NSWorkspace.shared.runningApplications.filter({ $0.activationPolicy == .regular }).sorted(by:{ ($0.localizedName ?? "") < ($1.localizedName ?? "") }) {
+            guard let bundle=app.bundleIdentifier,bundle != Bundle.main.bundleIdentifier,listed.insert(bundle).inserted else { continue }
+            let entry=add(apps,"\(app.localizedName ?? bundle) [\(bundle)]",#selector(toggleStageApp(_:)),enabled:!engine.busy)
+            entry.representedObject=["bundle":bundle,"name":app.localizedName ?? bundle]
+            entry.state=engine.database.preferences.stageExcludedApplications[bundle] != nil ? .on:.off
+        }
+        let stopped=engine.database.preferences.stageExcludedApplications.filter { !listed.contains($0.key) }
+        if !stopped.isEmpty {
+            apps.addItem(.separator())
+            for (bundle,name) in stopped.sorted(by:{ $0.key < $1.key }) {
+                let entry=add(apps,"\(name) [\(bundle)] · 未运行",#selector(toggleStageApp(_:)),enabled:!engine.busy)
+                entry.representedObject=["bundle":bundle,"name":name];entry.state = .on
+            }
+        }
+        apps.addItem(.separator())
+        add(apps,"从文件选择应用…",#selector(chooseStageApp),enabled:!engine.busy)
+        let appItem=add(menu,"横屏铺满排除应用",nil);appItem.submenu=apps;appItem.isEnabled=true
         let login=add(menu,"登录时启动",#selector(toggleLogin)); login.state=SMAppService.mainApp.status == .enabled ? .on:.off
         add(menu,engine.guardState.paused ? "继续自动操作":"暂停自动操作",#selector(pause))
         add(menu,"取消待恢复并暂停",#selector(cancelRestores))
@@ -78,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let entry=add(exclude,"\(app.localizedName ?? bundle) [\(bundle)]",#selector(toggleExclude(_:)))
             entry.representedObject=bundle; entry.state=engine.database.preferences.excludedBundles.contains(bundle) ? .on:.off
         }
-        let excludedItem=add(menu,"排除应用",nil); excludedItem.submenu=exclude; excludedItem.isEnabled=true
+        let excludedItem=add(menu,"排除应用（全部布局功能）",nil); excludedItem.submenu=exclude; excludedItem.isEnabled=true
         let roles=NSMenu()
         for w in engine.profile?.windows ?? [] {
             let entry=add(roles,"\(w.identity.bundle) / \(w.id.uuidString.prefix(6))",#selector(bind(_:)))
@@ -165,6 +185,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func removeStageKind(_ sender:NSMenuItem) {
         guard let rule=sender.representedObject as? StageWindowRule else { return }
         engine.setPreferences { $0.stageExcludedKinds.removeAll { $0 == rule } }
+    }
+    @objc func toggleStageApp(_ sender:NSMenuItem) {
+        guard let entry=sender.representedObject as? [String:String],let bundle=entry["bundle"],let name=entry["name"] else { return }
+        engine.setStageApplicationExclusion(bundle:bundle,name:name,excluded:engine.database.preferences.stageExcludedApplications[bundle] == nil)
+    }
+    static func stageApplication(at url: URL) -> (bundle: String,name: String)? {
+        guard url.pathExtension.lowercased() == "app",let application=Bundle(url:url),
+              let id=application.bundleIdentifier,!id.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,id.utf8.count <= 1024 else { return nil }
+        let name=(application.object(forInfoDictionaryKey:"CFBundleDisplayName") as? String) ??
+            (application.object(forInfoDictionaryKey:"CFBundleName") as? String) ?? url.deletingPathExtension().lastPathComponent
+        guard !name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,name.utf8.count <= 1024 else { return nil }
+        return (id,name)
+    }
+    static func stageApplicationPanel() -> NSOpenPanel {
+        let panel=NSOpenPanel();panel.allowedContentTypes=[.applicationBundle]
+        panel.canChooseDirectories=false;panel.canChooseFiles=true;panel.allowsMultipleSelection=false
+        panel.treatsFilePackagesAsDirectories=false;panel.directoryURL=URL(fileURLWithPath:"/Applications",isDirectory:true)
+        panel.message="选择不参与横屏铺满的应用；按应用标识保存，不移动或启动该应用。"
+        return panel
+    }
+    @objc func chooseStageApp() {
+        let panel=Self.stageApplicationPanel()
+        guard panel.runModal() == .OK,let url=panel.url else { return }
+        guard let app=Self.stageApplication(at:url) else {
+            let alert=NSAlert();alert.messageText="无法读取有效的应用标识，请选择完整的.app应用。";alert.runModal();return
+        }
+        engine.setStageApplicationExclusion(bundle:app.bundle,name:app.name,excluded:true)
     }
     @objc func toggleRemember() {
         if !engine.database.preferences.autoRemember && !confirm("自动保存前台窗口的鼠标拖动/缩放结果，包含新显示器组合。系统自动挤压或无鼠标证据的变化不会覆盖基准。键盘调整仍需手动保存。") { return }
