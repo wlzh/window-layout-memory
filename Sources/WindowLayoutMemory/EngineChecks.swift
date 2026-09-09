@@ -39,6 +39,10 @@ func runEngineChecks() -> Int32 {
         else { failed+=1;print("FAIL ENGINE \(name)") }
     }
     func pump(_ seconds: TimeInterval) { RunLoop.main.run(until:Date(timeIntervalSinceNow:seconds)) }
+    func items(_ menu:NSMenu) -> [NSMenuItem] {
+        menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) }
+    }
+    func find(_ menu:NSMenu,_ title:String) -> NSMenuItem? { items(menu).first { $0.title == title } }
     func awaitCondition(_ condition: ()->Bool) {
         let deadline=Date(timeIntervalSinceNow:8)
         while !condition(),Date() < deadline { pump(0.05) }
@@ -310,11 +314,41 @@ func runEngineChecks() -> Int32 {
         check("child default does not learn candidate or mutate baseline",child.candidates.isEmpty && child.database.profiles == db.profiles)
         let delegate=AppDelegate();delegate.engine=child
         let menu=NSMenu();menu.autoenablesItems=false;delegate.menuWillOpen(menu)
-        let option=menu.items.first { $0.title == "同时铺满子窗口" }
+        let option=find(menu,"同时铺满子窗口")
         check("child menu is indented unchecked and enabled under master",option?.state == .off && option?.indentationLevel == 1 && option?.isEnabled == true)
         check("redundant 100 point menu removed",!menu.items.contains { $0.title.contains("留白设为100") })
-        let exclusions=menu.items.first { $0.title == "铺满排除" }?.submenu
-        check("identified window offers persistent and session exclusion",exclusions?.items.contains { $0.title == "排除此标识的窗口…" } == true && exclusions?.items.contains { $0.title == "当前窗口不铺满（本次运行）" } == true)
+        let exclusions=find(menu,"台前调度铺满")?.submenu
+        check("identified window offers persistent and session exclusion",exclusions?.items.contains { $0.title == "按标识排除此窗口…" } == true && exclusions?.items.contains { $0.title == "当前窗口暂不铺满" } == true)
+        check("root has twelve entries and four functional groups",menu.items.filter { !$0.isSeparatorItem }.count == 12 && menu.items.filter { $0.submenu != nil }.map(\.title) == ["台前调度铺满","自动记忆与恢复","布局管理","设置与诊断"])
+        let routes:[(String,String,String)] = [
+            ("台前调度铺满","横屏自动铺满","toggleStageFill"),
+            ("台前调度铺满","同时铺满子窗口","toggleStageChildren"),
+            ("台前调度铺满","当前窗口暂不铺满","toggleStageWindow:"),
+            ("台前调度铺满","按标识排除此窗口…","toggleStageKind:"),
+            ("自动记忆与恢复","自动核对窗口变化","toggleObserve"),
+            ("自动记忆与恢复","自动记忆手动调整","toggleRemember"),
+            ("自动记忆与恢复","自动恢复保存布局","toggleAuto"),
+            ("自动记忆与恢复","关闭自动恢复并暂停","cancelRestores"),
+            ("布局管理","锁定当前布局","lock"),
+            ("布局管理","重命名当前布局…","rename"),
+            ("布局管理","导出布局备份…","exportBackup"),
+            ("布局管理","导入布局备份…","importBackup"),
+            ("设置与诊断","登录时启动","toggleLogin"),
+            ("设置与诊断","权限与运行状态…","showPanel"),
+            ("设置与诊断","重新核对窗口","refresh")]
+        for (group,title,selector) in routes {
+            let entry=find(menu,group)?.submenu?.items.first { $0.title == title }
+            check("menu route \(group)/\(title)",entry?.action == NSSelectorFromString(selector) && entry?.target === delegate)
+        }
+        check("quick actions remain at root with accurate save label",menu.items.contains { $0.title.hasPrefix("保存已核对窗口") && $0.action == NSSelectorFromString("save") } && menu.items.contains { $0.title == "恢复当前窗口" && $0.action == NSSelectorFromString("restore") } && menu.items.contains { $0.title == "暂停自动操作" && $0.action == NSSelectorFromString("pause") })
+        check("empty mapping and history menus disabled",find(menu,"从其它显示器组合映射")?.isEnabled == false && find(menu,"恢复历史基准")?.isEnabled == false)
+        check("submenus preserve explicit disabled state",!menu.autoenablesItems && items(menu).compactMap(\.submenu).allSatisfy { !$0.autoenablesItems })
+        let scansBefore=fake.scans,movesBefore=fake.moves,dbBefore=child.database
+        for _ in 0..<3 { delegate.menuWillOpen(menu) }
+        check("opening menus does not scan move or persist",fake.scans == scansBefore && fake.moves == movesBefore && child.database == dbBefore)
+        trusted=false;delegate.menuWillOpen(menu)
+        check("missing permission exposes actionable root entry",menu.items.first?.title == "需要辅助功能权限…" && menu.items.first?.action == NSSelectorFromString("authorize"))
+        trusted=true;delegate.menuWillOpen(menu)
         child.setPreferences { $0.stageFillChildren=true };awaitCondition { fake.moves > 0 }
         check("opt in allows standard child fill",fake.record.frame == Rect(100,0,1100,900))
         let rule=child.stageRule(for:fake.record)!
@@ -335,7 +369,7 @@ func runEngineChecks() -> Int32 {
         fake.record.identity.identifier=""
         check("missing identifier never creates broad persistent rule",child.stageRule(for:fake.record) == nil)
         fake.emit();pump(2.2);delegate.menuWillOpen(menu)
-        check("menu offers only session fallback without identifier",menu.items.first { $0.title == "铺满排除" }?.submenu?.items.contains { $0.title == "无可靠标识，仅可临时排除当前窗口" } == true)
+        check("menu offers only session fallback without identifier",find(menu,"按标识排除此窗口…")?.isEnabled == false && find(menu,"按标识排除此窗口…")?.toolTip?.contains("无可靠标识") == true)
         child.toggleStageSessionExclusion(fake.record.token);pump(2.2)
         fake.omitWindow=true;fake.emit();pump(0.6)
         check("complete scan clears closed window session exclusion",child.stageSessionExclusions.isEmpty)
@@ -350,7 +384,7 @@ func runEngineChecks() -> Int32 {
         child.toggleStageSessionExclusion(fake.record.token);pump(2.2)
         child.setPreferences { $0.stageFill=false };pump(2.2)
         delegate.menuWillOpen(menu)
-        check("child option disabled while master is off",menu.items.first { $0.title == "同时铺满子窗口" }?.isEnabled == false)
+        check("child option disabled while master is off",find(menu,"同时铺满子窗口")?.isEnabled == false)
         enabled=false;fake.record.frame=original
         child.setPreferences { $0.stageFill=true }
         awaitCondition { fake.record.frame == db.profiles[0].windows[0].frame }
@@ -370,8 +404,8 @@ func runEngineChecks() -> Int32 {
         check("app exclusion keeps ordinary app observation preferences intact",excluded.database.preferences.excludedBundles.isEmpty && excluded.candidates.isEmpty)
         let delegate=AppDelegate();delegate.engine=excluded
         let menu=NSMenu();menu.autoenablesItems=false;delegate.menuWillOpen(menu)
-        let submenu=menu.items.first { $0.title == "横屏铺满排除应用" }?.submenu
-        check("app menu includes persisted stopped app as checked",submenu?.items.contains { $0.title.contains("test.fixture") && $0.state == .on } == true)
+        let submenu=find(menu,"应用例外")?.submenu
+        check("app menu includes persisted stopped app as checked",submenu?.items.contains { $0.toolTip == "test.fixture" && $0.state == .on && $0.title == "Synthetic · 未运行" } == true)
         check("app menu includes file picker entry",submenu?.items.contains { $0.title == "从文件选择应用…" } == true)
         excluded.setStageApplicationExclusion(bundle:"test.fixture",name:"Synthetic",excluded:false)
         awaitCondition { fake.moves > 0 }
@@ -392,7 +426,17 @@ func runEngineChecks() -> Int32 {
         check("file selection rejects missing and non app bundles",AppDelegate.stageApplication(at:root) == nil && AppDelegate.stageApplication(at:root.appendingPathComponent("Missing.app")) == nil)
         let picker=AppDelegate.stageApplicationPanel()
         check("native file picker restricts selection to application bundles",picker.allowedContentTypes.first?.identifier == "com.apple.application-bundle" && picker.canChooseFiles && !picker.canChooseDirectories && !picker.allowsMultipleSelection && !picker.treatsFilePackagesAsDirectories)
-        picker.close();excluded.togglePause()
+        picker.close()
+        excluded.setPreferences { $0.autoObserve=false;$0.excludedBundles=["test.stopped"] }
+        awaitCondition { !excluded.busy && !excluded.database.preferences.autoObserve }
+        delegate.menuWillOpen(menu);menu.update()
+        check("auto remember dependency disabled without discarding saved choice",find(menu,"自动记忆手动调整")?.isEnabled == false && find(menu,"自动记忆手动调整")?.state == .on)
+        check("global stopped app exclusion remains removable in its own group",find(menu,"完全忽略应用")?.submenu?.items.contains { ($0.representedObject as? String) == "test.stopped" && $0.state == .on && $0.action == NSSelectorFromString("toggleExclude:") } == true)
+        check("app exceptions and global exclusions stay independent during menu creation",excluded.database.preferences.stageExcludedApplications == ["test.fixture":"Synthetic"] && excluded.database.preferences.excludedBundles == ["test.stopped"])
+        func depth(_ current:NSMenu) -> Int { 1+(current.items.compactMap(\.submenu).map(depth).max() ?? 0) }
+        check("menu nesting is limited to two flyouts",depth(menu) <= 3)
+        excluded.togglePause();delegate.menuWillOpen(menu)
+        check("paused root changes to resume without disabling restore preference",menu.items.first?.title.contains("已暂停") == true && find(menu,"继续自动操作")?.action == NSSelectorFromString("pause"))
     } catch { failed+=1;print("FAIL ENGINE application exclusions: \(error)") }
     print("ENGINE_TESTS passed=\(passed) failed=\(failed); injected adapter, not physical AX or Stage Manager validation")
     return failed == 0 ? 0:1

@@ -26,54 +26,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     func menuWillOpen(_ menu: NSMenu) {
         menu.removeAllItems()
-        add(menu,"Window Layout Memory \(AppVersion.label)",nil)
-        add(menu,engine.status,nil)
-        menu.addItem(.separator())
-        add(menu,"布局预览：当前 / 已保存 / 对比…",#selector(showPreview))
-        add(menu,"保存已核对候选为基准 (\(engine.candidates.count))",#selector(save),enabled:!engine.busy && !engine.candidates.isEmpty)
-        add(menu,"恢复当前前台窗口",#selector(restore),enabled:engine.profile != nil && !engine.busy)
+        let stage=NSMenu(),automation=NSMenu(),layouts=NSMenu(),settings=NSMenu()
+        let state=engine.guardState.paused ? "已暂停" : engine.guardState.settling ? "核对中" : "运行中"
+        let status=add(menu,engine.hasAccessibilityPermission ? "\(engine.topology.displays.count)屏 · \(state)":"需要辅助功能权限…",
+                       engine.hasAccessibilityPermission ? #selector(showPanel):#selector(authorize))
+        status.toolTip=engine.status
+        add(menu,"布局预览…",#selector(showPreview)).toolTip="查看当前、已保存及对比布局"
+        add(menu,"保存已核对窗口（\(engine.candidates.count)）",#selector(save),enabled:!engine.busy && !engine.candidates.isEmpty).toolTip="将已核对候选保存为基准，不是完整桌面快照"
+        add(menu,"恢复当前窗口",#selector(restore),enabled:engine.profile != nil && !engine.busy)
         add(menu,"撤销最近恢复",#selector(undo),enabled:engine.canUndo)
-        add(menu,engine.profile?.locked == true ? "解锁当前基准":"锁定当前基准",#selector(lock),enabled:engine.profile != nil)
-        add(menu,"重命名当前布局…",#selector(rename),enabled:engine.profile != nil && !engine.busy)
+        add(layouts,engine.profile?.locked == true ? "解锁当前布局":"锁定当前布局",#selector(lock),enabled:engine.profile != nil && !engine.busy)
+        add(layouts,"重命名当前布局…",#selector(rename),enabled:engine.profile != nil && !engine.busy)
         let copies=NSMenu()
         for p in engine.database.profiles where p.topology.key != engine.topology.key {
             let entry=add(copies,"\(p.name) / \(p.topology.displays.count)屏 / \(p.id.uuidString.prefix(6))",#selector(copyLayout(_:)))
             entry.representedObject=p
         }
-        let copyItem=add(menu,"从其它布局手动映射显示器…",nil);copyItem.submenu=copies;copyItem.isEnabled = !engine.busy
-        menu.addItem(.separator())
-        let observe=add(menu,"自动核对窗口变化",#selector(toggleObserve)); observe.state=engine.database.preferences.autoObserve ? .on:.off
-        let remember=add(menu,"自动保存手动拖动后的布局",#selector(toggleRemember)); remember.state=engine.database.preferences.autoRemember ? .on:.off
-        let auto=add(menu,"激活/登录/切屏后自动恢复",#selector(toggleAuto)); auto.state=engine.database.preferences.autoRestore ? .on:.off
-        let fill=add(menu,"台前调度：横屏自动铺满（拖左边缘调整留白）",#selector(toggleStageFill));fill.state=engine.database.preferences.stageFill ? .on:.off
-        let children=add(menu,"同时铺满子窗口",#selector(toggleStageChildren),enabled:engine.database.preferences.stageFill && !engine.busy)
+        let observe=add(automation,"自动核对窗口变化",#selector(toggleObserve),enabled:!engine.busy); observe.state=engine.database.preferences.autoObserve ? .on:.off
+        let remember=add(automation,"自动记忆手动调整",#selector(toggleRemember),enabled:engine.database.preferences.autoObserve && !engine.busy); remember.state=engine.database.preferences.autoRemember ? .on:.off
+        remember.toolTip="需开启自动核对；仅记忆有鼠标拖动/缩放证据的变化"
+        let auto=add(automation,"自动恢复保存布局",#selector(toggleAuto),enabled:!engine.busy); auto.state=engine.database.preferences.autoRestore ? .on:.off
+        let fill=add(stage,"横屏自动铺满",#selector(toggleStageFill),enabled:!engine.busy);fill.state=engine.database.preferences.stageFill ? .on:.off
+        fill.toolTip="仅系统台前调度开启时生效；默认左留100 pt，可拖左边缘调整"
+        let children=add(stage,"同时铺满子窗口",#selector(toggleStageChildren),enabled:engine.database.preferences.stageFill && !engine.busy)
         children.indentationLevel=1;children.state=engine.database.preferences.stageFillChildren ? .on:.off
+        stage.addItem(.separator())
         let exceptions=NSMenu()
         if let record=engine.stageMenuRecord {
-            let temporary=add(exceptions,"当前窗口不铺满（本次运行）",#selector(toggleStageWindow(_:)),enabled:!engine.busy)
+            let temporary=add(stage,"当前窗口暂不铺满",#selector(toggleStageWindow(_:)),enabled:!engine.busy)
+            temporary.toolTip="仅本次运行中的此窗口，不影响同应用其它窗口"
             temporary.representedObject=record.token
             temporary.state=engine.stageSessionExclusions.contains(record.token) ? .on:.off
             if let rule=engine.stageRule(for:record) {
-                let entry=add(exceptions,"排除此标识的窗口…",#selector(toggleStageKind(_:)),enabled:!engine.busy)
+                let entry=add(stage,"按标识排除此窗口…",#selector(toggleStageKind(_:)),enabled:!engine.busy)
                 entry.representedObject=rule
                 entry.state=engine.database.preferences.stageExcludedKinds.contains(rule) ? .on:.off
             } else {
-                add(exceptions,"无可靠标识，仅可临时排除当前窗口",nil)
+                add(stage,"按标识排除此窗口…",nil).toolTip="无可靠标识，仅可临时排除当前窗口"
             }
-        } else { add(exceptions,"请先激活目标窗口并等待核对",nil) }
+        } else {
+            add(stage,"当前窗口暂不铺满",nil).toolTip="请先激活目标窗口并等待核对"
+            add(stage,"按标识排除此窗口…",nil).toolTip="请先激活目标窗口并等待核对"
+        }
         if !engine.database.preferences.stageExcludedKinds.isEmpty {
-            exceptions.addItem(.separator())
             for rule in engine.database.preferences.stageExcludedKinds {
-                let entry=add(exceptions,"取消排除：\(rule.bundle) / \(rule.identifier)",#selector(removeStageKind(_:)),enabled:!engine.busy)
+                let entry=add(exceptions,"\(rule.bundle) / \(rule.identifier.prefix(48))",#selector(removeStageKind(_:)),enabled:!engine.busy)
+                entry.state = .on;entry.toolTip="点击取消排除：\(rule.identifier)"
                 entry.representedObject=rule
             }
         }
-        let exceptionItem=add(menu,"铺满排除",nil);exceptionItem.submenu=exceptions;exceptionItem.isEnabled=true
+        if exceptions.items.isEmpty { add(exceptions,"尚无持久窗口例外",nil) }
         let apps=NSMenu()
         var listed=Set<String>()
-        for app in NSWorkspace.shared.runningApplications.filter({ $0.activationPolicy == .regular }).sorted(by:{ ($0.localizedName ?? "") < ($1.localizedName ?? "") }) {
+        let running=NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
+        let knownNames=Dictionary(running.compactMap { app -> (String,String)? in
+            guard let bundle=app.bundleIdentifier else { return nil };return (bundle,app.localizedName ?? bundle)
+        },uniquingKeysWith:{ first,_ in first }).merging(engine.database.preferences.stageExcludedApplications,uniquingKeysWith:{ live,_ in live })
+        let nameCounts=Dictionary(grouping:knownNames.values,by:{ $0 }).mapValues(\.count)
+        func appLabel(_ app:NSRunningApplication,_ bundle:String) -> String {
+            let name=app.localizedName ?? bundle
+            return nameCounts[name,default:0] > 1 ? "\(name) [\(bundle)]":name
+        }
+        func decorate(_ entry:NSMenuItem,_ app:NSRunningApplication,_ bundle:String) {
+            entry.toolTip=bundle
+            if let icon=app.icon?.copy() as? NSImage { icon.size=NSSize(width:16,height:16);entry.image=icon }
+        }
+        for app in running {
             guard let bundle=app.bundleIdentifier,bundle != Bundle.main.bundleIdentifier,listed.insert(bundle).inserted else { continue }
-            let entry=add(apps,"\(app.localizedName ?? bundle) [\(bundle)]",#selector(toggleStageApp(_:)),enabled:!engine.busy)
+            let entry=add(apps,appLabel(app,bundle),#selector(toggleStageApp(_:)),enabled:!engine.busy)
+            decorate(entry,app,bundle)
             entry.representedObject=["bundle":bundle,"name":app.localizedName ?? bundle]
             entry.state=engine.database.preferences.stageExcludedApplications[bundle] != nil ? .on:.off
         }
@@ -81,44 +102,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !stopped.isEmpty {
             apps.addItem(.separator())
             for (bundle,name) in stopped.sorted(by:{ $0.key < $1.key }) {
-                let entry=add(apps,"\(name) [\(bundle)] · 未运行",#selector(toggleStageApp(_:)),enabled:!engine.busy)
+                let label=nameCounts[name,default:0] > 1 ? "\(name) [\(bundle)]":name
+                let entry=add(apps,"\(label) · 未运行",#selector(toggleStageApp(_:)),enabled:!engine.busy)
+                entry.toolTip=bundle
                 entry.representedObject=["bundle":bundle,"name":name];entry.state = .on
             }
         }
         apps.addItem(.separator())
         add(apps,"从文件选择应用…",#selector(chooseStageApp),enabled:!engine.busy)
-        let appItem=add(menu,"横屏铺满排除应用",nil);appItem.submenu=apps;appItem.isEnabled=true
-        let login=add(menu,"登录时启动",#selector(toggleLogin)); login.state=SMAppService.mainApp.status == .enabled ? .on:.off
-        add(menu,engine.guardState.paused ? "继续自动操作":"暂停自动操作",#selector(pause))
-        add(menu,"取消待恢复并暂停",#selector(cancelRestores))
-        menu.addItem(.separator())
+        let appItem=add(stage,"应用例外",nil);appItem.submenu=apps;appItem.isEnabled=true
+        let exceptionItem=add(stage,"管理窗口例外",nil);exceptionItem.submenu=exceptions;exceptionItem.isEnabled=true
+        let login=add(settings,"登录时启动",#selector(toggleLogin)); login.state=SMAppService.mainApp.status == .enabled ? .on:.off
+        automation.addItem(.separator())
         let exclude=NSMenu()
-        for app in NSWorkspace.shared.runningApplications.filter({ $0.activationPolicy == .regular }).sorted(by:{ ($0.localizedName ?? "") < ($1.localizedName ?? "") }) {
+        var globalListed=Set<String>()
+        for app in running {
             guard let bundle=app.bundleIdentifier,bundle != Bundle.main.bundleIdentifier else { continue }
-            let entry=add(exclude,"\(app.localizedName ?? bundle) [\(bundle)]",#selector(toggleExclude(_:)))
+            guard globalListed.insert(bundle).inserted else { continue }
+            let entry=add(exclude,appLabel(app,bundle),#selector(toggleExclude(_:)),enabled:!engine.busy)
+            decorate(entry,app,bundle)
             entry.representedObject=bundle; entry.state=engine.database.preferences.excludedBundles.contains(bundle) ? .on:.off
         }
-        let excludedItem=add(menu,"排除应用（全部布局功能）",nil); excludedItem.submenu=exclude; excludedItem.isEnabled=true
+        for bundle in Set(engine.database.preferences.excludedBundles).subtracting(globalListed).sorted() {
+            let entry=add(exclude,"\(bundle) · 未运行",#selector(toggleExclude(_:)),enabled:!engine.busy)
+            entry.representedObject=bundle;entry.state = .on
+        }
+        let excludedItem=add(automation,"完全忽略应用",nil); excludedItem.submenu=exclude; excludedItem.isEnabled=true
+        excludedItem.toolTip="停止所选应用的全部布局核对，不只是台前调度铺满"
+        add(automation,"关闭自动恢复并暂停",#selector(cancelRestores))
         let roles=NSMenu()
         for w in engine.profile?.windows ?? [] {
             let entry=add(roles,"\(w.identity.bundle) / \(w.id.uuidString.prefix(6))",#selector(bind(_:)))
             entry.representedObject=w.id.uuidString
         }
-        let roleItem=add(menu,"将当前窗口绑定到已存角色",nil); roleItem.submenu=roles; roleItem.isEnabled=true
+        let roleItem=add(layouts,"关联已保存窗口",nil); roleItem.submenu=roles; roleItem.isEnabled = !engine.busy && !roles.items.isEmpty
+        let copyItem=add(layouts,"从其它显示器组合映射",nil);copyItem.submenu=copies;copyItem.isEnabled = !engine.busy && !copies.items.isEmpty
         let history=NSMenu()
         for p in engine.database.history.reversed().filter({ $0.id == engine.profile?.id }) {
             let entry=add(history,"修订 \(p.revision) · \(p.windows.count) 窗口 · \(p.updatedAt.formatted())",#selector(history(_:)))
             entry.representedObject=p
         }
-        let historyItem=add(menu,"恢复历史基准（不移动窗口）",nil); historyItem.submenu=history; historyItem.isEnabled=true
-        add(menu,"导出私人布局备份…",#selector(exportBackup))
-        add(menu,"导入布局备份…",#selector(importBackup))
+        let historyItem=add(layouts,"恢复历史基准",nil); historyItem.submenu=history; historyItem.isEnabled = !engine.busy && !history.items.isEmpty
+        historyItem.toolTip="只修改保存基准，不立即移动窗口"
+        layouts.addItem(.separator())
+        add(layouts,"导出布局备份…",#selector(exportBackup))
+        add(layouts,"导入布局备份…",#selector(importBackup),enabled:!engine.busy)
+        add(settings,"权限与运行状态…",#selector(showPanel)).toolTip="包含辅助功能授权入口及详细诊断"
+        add(settings,"重新核对窗口",#selector(refresh))
         menu.addItem(.separator())
-        add(menu,"布局状态与使用说明…",#selector(showPanel))
-        add(menu,"授权辅助功能…",#selector(authorize))
-        add(menu,"重新核对权限与窗口",#selector(refresh))
+        for (title,submenu) in [("台前调度铺满",stage),("自动记忆与恢复",automation),("布局管理",layouts),("设置与诊断",settings)] {
+            let entry=add(menu,title,nil);entry.submenu=submenu;entry.isEnabled=true
+        }
+        menu.addItem(.separator())
+        add(menu,engine.guardState.paused ? "继续自动操作":"暂停自动操作",#selector(pause))
         add(menu,"关于窗口布局记忆…",#selector(showAbout))
         add(menu,"退出",#selector(quit),key:"q")
+        func configure(_ current:NSMenu) {
+            current.autoenablesItems=false
+            for entry in current.items { if let child=entry.submenu { configure(child) } }
+        }
+        configure(menu)
     }
     @discardableResult func add(_ menu:NSMenu,_ title:String,_ action:Selector?,enabled:Bool=true,key:String="") -> NSMenuItem {
         let entry=NSMenuItem(title:title,action:action,keyEquivalent:key); entry.target=self
@@ -179,7 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func toggleStageKind(_ sender:NSMenuItem) {
         guard let rule=sender.representedObject as? StageWindowRule else { return }
         if engine.database.preferences.stageExcludedKinds.contains(rule) { removeStageKind(sender);return }
-        guard confirm("永久排除此应用中相同AX标识的窗口：\(rule.bundle) / \(rule.identifier)。应用可能复用标识，这也会排除使用相同标识的主窗口；不按标题或图片内容猜测。可从铺满排除菜单撤销。") else { return }
+        guard confirm("永久排除此应用中相同AX标识的窗口：\(rule.bundle) / \(rule.identifier)。应用可能复用标识，这也会排除使用相同标识的主窗口；不按标题或图片内容猜测。可从台前调度铺满 → 管理窗口例外撤销。") else { return }
         engine.setPreferences { if $0.stageExcludedKinds.count < 200 { $0.stageExcludedKinds.append(rule) } }
     }
     @objc func removeStageKind(_ sender:NSMenuItem) {

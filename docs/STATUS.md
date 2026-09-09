@@ -2,9 +2,13 @@
 
 ## 当前工作版
 
+**0.3.0-preview.7 / build 11**：菜单重组，schema 1不变。294项功能检查通过；Engine行覆盖82.35%。完整菜单与作用域见[导航](MENU.md)。构建、安装与发布验证正在进行，以下旧版记录不代表本版实机验收。
+
+## build 10历史记录
+
 **0.3.0-preview.6 / build 10**：新增横屏铺满应用例外，支持运行列表和文件选择.app，按Bundle ID持久保存；与全局应用排除分离。同时加入同屏、可读几何、明确提供非全屏AXZoomWindow时的一次原生缩放回退，随后核验尺寸再对齐。268项功能检查及5项文档校验器测试通过，核心行覆盖率99.17%。构建、签名、安装启动与布局文件不变核验通过；当前三屏识别到原有8个窗口基准。初装新版未授权，实际自动回退与菜单选择待验证。实时权限以应用面板为准，单独命令行诊断不是等价代理。
 
-[preview.6已发布](https://github.com/wlzh/window-layout-memory/releases/tag/v0.3.0-preview.6)，功能提交9e826c5；回下载SHA256、签名及安装二进制一致性通过。[源码CI](https://github.com/wlzh/window-layout-memory/actions/runs/34306936699)和[tag CI](https://github.com/wlzh/window-layout-memory/actions/runs/34306965581)在记录时仍运行，不以本地测试替代CI结果。后续菜单重组尚在讨论，未改变本版菜单或重新签名。
+[preview.6已发布](https://github.com/wlzh/window-layout-memory/releases/tag/v0.3.0-preview.6)，功能提交9e826c5；回下载SHA256、签名及安装二进制一致性通过。[源码CI](https://github.com/wlzh/window-layout-memory/actions/runs/34306936699)和[tag CI](https://github.com/wlzh/window-layout-memory/actions/runs/34306965581)在记录时仍运行，不以本地测试替代CI结果。此为build 10历史发布记录；菜单重组已在build 11实现。
 
 本次build 9实机已授权。Telegram的尺寸未达到目标错误确认不是子窗口策略直接排除；受控非全屏原生缩放后，Q2789上达到(-1820,25)、1820×1055，左留100 pt。微信仍有尺寸失败，尚未完成同等受控验证。
 
