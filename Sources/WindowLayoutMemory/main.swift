@@ -211,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func refresh() { engine.displayChanged() }
     @objc func toggleObserve() { engine.setPreferences { $0.autoObserve.toggle() } }
     @objc func toggleStageFill() {
-        if !engine.database.preferences.stageFill && !confirm("仅台前调度开启时，自动将横屏前台窗口铺满可用工作区。左侧默认留白100 pt；拖左边缘后记住新留白。原布局基准不变，竖屏不处理。关闭后停止铺满，不立即移动窗口。") { return }
+        if !engine.database.preferences.stageFill && !confirm("仅台前调度开启时，自动将横屏前台窗口铺满可用工作区。左侧默认留白100 pt；拖左边缘后记住新留白。成功后更新当前组合的窗口位置、大小和显示器记录，保留历史；锁定布局不覆盖。手动换屏后以新屏幕为准。竖屏不铺满，关闭后停止铺满，不立即移动窗口。") { return }
         engine.setPreferences { $0.stageFill.toggle() }
     }
     @objc func toggleStageChildren() { engine.setPreferences { $0.stageFillChildren.toggle() } }

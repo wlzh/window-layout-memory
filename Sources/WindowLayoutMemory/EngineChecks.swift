@@ -11,6 +11,7 @@ private final class FixtureService: WindowService {
         frame:Rect(20,40,400,300),focused:true,usable:true)
     var scans=0, moves=0
     var holdFill=false, heldFill: (() -> Void)?
+    var failFill=false,wrongFill=false
     var omitWindow=false
     var hold=false
     var held: [(ScanResult)->Void]=[]
@@ -27,6 +28,7 @@ private final class FixtureService: WindowService {
     }
     func emit() { onEvent?(record.pid,kAXWindowMovedNotification,record.element) }
     func fill(_ record: AXRecord,to target: Rect,allowed: @escaping ()->Bool,completion: @escaping (Rect?,String?)->Void) {
+        if failFill || wrongFill { moves+=1;completion(record.frame,failFill ? "fixture failure":nil);return }
         if holdFill { heldFill={ [weak self] in self?.move(record,to:target,allowed:allowed,completion:completion) } }
         else { move(record,to:target,allowed:allowed,completion:completion) }
     }
@@ -201,7 +203,8 @@ func runEngineChecks() -> Int32 {
         awaitCondition { fake.moves == 1 }
         check("stage fill takes priority over saved baseline",fake.record.frame == Rect(200,0,1000,900))
         check("stage fill never creates ordinary candidates",stage.candidates.isEmpty)
-        check("stage fill preserves stored baseline",(try? stageStore.load().profiles) == db.profiles)
+        awaitCondition { !stage.busy && stage.profile?.windows.first?.frame == fake.record.frame }
+        check("stage fill replaces stored size while preserving window identity",stage.profile?.windows.first?.frame == fake.record.frame && stage.profile?.windows.first?.id == window.id)
         let firstMoves=fake.moves
         fake.record.frame=Rect(230,50,700,600)
         fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element)
@@ -216,7 +219,8 @@ func runEngineChecks() -> Int32 {
         let insetKey=StageFill.insetKey(topology:topology,display:display)
         awaitCondition { stage.database.preferences.stageInsets[insetKey] == 150 && !stage.busy }
         check("left edge resize persists shared per-display inset",stage.database.preferences.stageInsets[insetKey] == 150)
-        check("inset save does not modify baseline or history",stage.database.profiles == db.profiles && stage.database.history.isEmpty)
+        awaitCondition { !stage.busy && stage.profile?.windows.first?.frame == Rect(150,0,1050,900) }
+        check("inset fill updates baseline and retains recoverable history",stage.profile?.windows.first?.frame == Rect(150,0,1050,900) && !stage.database.history.isEmpty)
         fake.record.frame=Rect(350,40,400,300)
         fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element)
         awaitCondition { fake.record.frame == Rect(150,0,1050,900) }
@@ -226,7 +230,7 @@ func runEngineChecks() -> Int32 {
         fake.record.frame.x=180;pointerPoint.x=330;pointer=false;stage.pointerEvent(down:false)
         pump(3.5)
         check("titlebar drag stays free until next activation",fake.record.frame.x == 180)
-        check("free drag does not change inset or baseline",stage.database.preferences.stageInsets[insetKey] == 150 && stage.database.profiles == db.profiles)
+        check("free same screen drag waits for verified fill before saving",stage.database.preferences.stageInsets[insetKey] == 150 && stage.profile?.windows.first?.frame == Rect(150,0,1050,900))
         let count=fake.moves
         for _ in 0..<1000 { fake.emit() };pump(0.8)
         check("stage geometry notifications never form a move loop",fake.moves == count)
@@ -251,6 +255,30 @@ func runEngineChecks() -> Int32 {
         check("new combination never borrows inset",stage.database.preferences.stageInsets.count == 1)
         stage.togglePause()
     } catch { failed+=1;print("FAIL ENGINE stage setup: \(error)") }
+    for mode in ["failed","wrongGeometry","locked","disabledRemember"] {
+        do {
+            topology=Topology([display]);trusted=true;pointer=false
+            var localEnv=env;localEnv.stageManagerEnabled={true};localEnv.stageDisplay={$0}
+            let fake=FixtureService();fake.failFill=mode == "failed";fake.wrongFill=mode == "wrongGeometry"
+            let store=LayoutStore(directory:root.appendingPathComponent("stage-save-\(mode)"))
+            var db=Database();db.preferences.stageFill=true
+            db.preferences.autoRemember=mode != "disabledRemember"
+            db.profiles=[Profile(name:"Baseline",topology:topology,windows:[SavedWindow(identity:fake.record.identity,displayID:display.id,frame:fake.record.frame,sourceVisible:display.visible)])]
+            db.profiles[0].locked=mode == "locked"
+            try store.save(db)
+            let engine=Engine(service:fake,store:store,environment:localEnv)
+            awaitCondition { fake.moves > 0 };pump(0.4);awaitCondition { !engine.busy }
+            if mode == "disabledRemember" {
+                check("verified fill save is independent of mouse auto remember",engine.profile?.windows.first?.frame == Rect(100,0,1100,900))
+                let revision=engine.profile?.revision
+                fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element);pump(2.5)
+                check("unchanged filled target does not create repeated revisions",engine.profile?.revision == revision)
+            } else {
+                check("stage save \(mode) leaves baseline and history unchanged",(try? store.load()) == db)
+            }
+            engine.togglePause()
+        } catch {failed+=1;print("FAIL ENGINE stage save \(mode): \(error)")}
+    }
     do {
         let external=Display(id:"external",name:"External",frame:Rect(-1600,0,1600,1000),primary:false)
         let portrait=Display(id:"portrait",name:"Portrait",frame:Rect(-800,0,800,1200),primary:false)
@@ -277,17 +305,31 @@ func runEngineChecks() -> Int32 {
             let engine=Engine(service:fake,store:store,environment:routedEnv)
             awaitCondition { fake.moves > 0 }
             check(name,fake.record.frame == expected && fake.moves == 1)
-            check("routing \(index) preserves profiles and history",(try? store.load()) == db)
+            awaitCondition { !engine.busy }
+            let changedProfile=engine.profile
+            if ambiguous || destination.frame.width <= destination.frame.height {
+                check("routing \(index) does not save ambiguous or portrait fill",(try? store.load()) == db)
+            } else {
+                check("routing \(index) records verified filled geometry",changedProfile?.windows.contains(where:{$0.frame == expected}) == true)
+                if index == 3 {
+                    check("new combination capture preserves previous combination",engine.database.profiles.first(where:{$0.topology.key == savedTopology.key}) == db.profiles.first)
+                }
+            }
             if index == 0 {
                 pump(2.2)
                 pointerPoint=CGPoint(x:-1300,y:5);pointer=true;engine.pointerEvent(down:true)
                 fake.record.frame=Rect(100,50,900,700)
                 pointerPoint=CGPoint(x:400,y:55);pointer=false;engine.pointerEvent(down:false)
                 pump(3.3)
-                check("manual cross-screen drag is not immediately snapped back",fake.record.frame == Rect(100,50,900,700))
+                check("manual cross-screen drag fills user chosen display",fake.record.frame == Rect(100,0,1100,900))
                 fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element)
-                awaitCondition { fake.record.frame == expected }
-                check("next activation returns temporary move to saved display",fake.record.frame == expected && (try? store.load()) == db)
+                awaitCondition { !engine.busy && engine.profile?.windows.first?.displayID == display.id }
+                check("next activation retains newly saved display instead of old screen",fake.record.frame == Rect(100,0,1100,900) && engine.profile?.windows.first?.displayID == display.id)
+                let restartedService=FixtureService();restartedService.record.frame=expected
+                let restarted=Engine(service:restartedService,store:store,environment:routedEnv)
+                awaitCondition { restartedService.record.frame == Rect(100,0,1100,900) && !restarted.busy }
+                check("restart uses new saved monitor assignment",restartedService.record.frame == Rect(100,0,1100,900) && restarted.profile?.windows.first?.id == saved.id)
+                restarted.togglePause()
             }
             engine.togglePause()
         }
@@ -357,13 +399,15 @@ func runEngineChecks() -> Int32 {
         trusted=true;delegate.menuWillOpen(menu)
         child.setPreferences { $0.stageFillChildren=true };awaitCondition { fake.moves > 0 }
         check("opt in allows standard child fill",fake.record.frame == Rect(100,0,1100,900))
+        awaitCondition { !child.busy && child.profile?.windows.first?.frame == fake.record.frame }
+        let filledProfiles=child.database.profiles
         let rule=child.stageRule(for:fake.record)!
         child.setPreferences { $0.stageExcludedKinds=[rule] };pump(2.2)
         let before=fake.moves
         fake.record.frame=original;fake.emit();pump(2.2)
         check("explicit exclusion overrides child opt in without restore fallback",fake.moves == before && fake.record.frame == original)
         let reloaded=try store.load()
-        check("persistent exclusions survive restart read without profile changes",reloaded.preferences.stageExcludedKinds == [rule] && child.database.profiles == db.profiles)
+        check("persistent exclusions preserve newly saved filled profile",reloaded.preferences.stageExcludedKinds == [rule] && child.database.profiles == filledProfiles)
         child.setPreferences { $0.stageExcludedKinds=[] };awaitCondition { fake.moves > before }
         check("removing persistent rule permits fill again",fake.moves > before)
         child.toggleStageSessionExclusion(fake.record.token);pump(2.2)
@@ -393,8 +437,8 @@ func runEngineChecks() -> Int32 {
         check("child option disabled while master is off",find(menu,"同时铺满子窗口")?.isEnabled == false)
         enabled=false;fake.record.frame=original
         child.setPreferences { $0.stageFill=true }
-        awaitCondition { fake.record.frame == db.profiles[0].windows[0].frame }
-        check("system stage off performs ordinary restore despite master on",fake.record.frame == db.profiles[0].windows[0].frame)
+        awaitCondition { fake.record.frame == child.profile?.windows.first?.frame }
+        check("system stage off restores newly recorded filled baseline",fake.record.frame == child.profile?.windows.first?.frame)
         child.togglePause()
     } catch { failed+=1;print("FAIL ENGINE child policy: \(error)") }
     do {

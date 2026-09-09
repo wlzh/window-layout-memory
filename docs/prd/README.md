@@ -4,6 +4,7 @@
 
 | 目标版本 | 状态 | 文档 | 发布状态 |
 | --- | --- | --- | --- |
+| v0.3.0-preview.11 | 铺满结果保存、手动换屏优先 | [PRD](v0.3.0-preview.11/prd.md)、[设计](v0.3.0-preview.11/design.md)、[技术](v0.3.0-preview.11/dev.md)、[计划](v0.3.0-preview.11/plan.md) | build 17候选，验收见总览 |
 | v0.3.0-preview.10 | 恢复先对齐位置再调整尺寸，无成功记录 | [PRD](v0.3.0-preview.10/prd.md)、[设计](v0.3.0-preview.10/design.md)、[技术](v0.3.0-preview.10/dev.md)、[计划](v0.3.0-preview.10/plan.md) | build 16候选，实测未通过不发布 |
 | v0.3.0-preview.9 | 尺寸兼容处理、失败不先搬动、授权恢复 | [PRD](v0.3.0-preview.9/prd.md)、[设计](v0.3.0-preview.9/design.md)、[技术](v0.3.0-preview.9/dev.md)、[计划](v0.3.0-preview.9/plan.md) | build 15候选；分步实验已撤回，实测见总览 |
 | v0.3.0-preview.8 | 移除吞掉留白的原生最大化回退 | [PRD](v0.3.0-preview.8/prd.md)、[设计](v0.3.0-preview.8/design.md)、[技术](v0.3.0-preview.8/dev.md)、[计划](v0.3.0-preview.8/plan.md) | build 12；验收见总览 |
