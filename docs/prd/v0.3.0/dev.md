@@ -1,5 +1,9 @@
 # v0.3.0 技术
 
+## preview.3 目标路由修正
+
+stageDestination在自动恢复开启且Matcher唯一匹配时取当前profile的displayID。目标横屏计算该屏留白目标；跨到竖屏时用SavedWindow.target，已在竖屏时回归普通布局路径。否则只允许本屏铺满，不猜测跨屏。applyStageFill每步重验目标、profile修订及原有焦点/权限/拓扑保护。手动留白调整仍针对当前屏幕，不以保存屏幕覆盖用户正在进行的手势；下一次激活重新路由。无新增AX扫描或常驻轮询。
+
 LayoutCore新增StageFill纯几何策略。Preferences新增stageFill和stageInsets，缺失字段默认关闭/空。保留schema 1，验证条目数量、键长度和有限非负宽度；旧版本忽略新增字段，降级再写可能丢失新偏好。
 
 Engine在稳定前台批次里先处理铺满，再处理普通恢复。独立激活尝试集合避免AX反馈循环；左边缘手势使用现有按下/松开证据，留白写入现有串行原子存储，不改profiles/history。写入期间下一次目标核对合并排队，代际变化取消延迟移动。

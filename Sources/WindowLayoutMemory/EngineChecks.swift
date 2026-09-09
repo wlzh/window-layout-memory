@@ -234,6 +234,58 @@ func runEngineChecks() -> Int32 {
         check("new combination never borrows inset",stage.database.preferences.stageInsets.count == 1)
         stage.togglePause()
     } catch { failed+=1;print("FAIL ENGINE stage setup: \(error)") }
+    do {
+        let external=Display(id:"external",name:"External",frame:Rect(-1600,0,1600,1000),primary:false)
+        let portrait=Display(id:"portrait",name:"Portrait",frame:Rect(-800,0,800,1200),primary:false)
+        let pair=Topology([display,external]),verticalPair=Topology([display,portrait])
+        let cases:[(String,Topology,Topology,Display,Bool,Bool,Rect)] = [
+            ("reconnect restores saved external display before filling",pair,pair,external,true,false,Rect(-1400,0,1400,1000)),
+            ("saved portrait restores original frame instead of filling internal",verticalPair,verticalPair,portrait,true,false,Rect(-700,40,500,600)),
+            ("disabled auto restore fills current screen without crossing",pair,pair,external,false,false,Rect(200,0,1000,900)),
+            ("unknown combination never borrows saved display",Topology([display]),pair,external,true,false,Rect(200,0,1000,900)),
+            ("ambiguous saved roles never choose a destination screen",pair,pair,external,true,true,Rect(200,0,1000,900))
+        ]
+        for (index,item) in cases.enumerated() {
+            let (name,current,savedTopology,destination,autoRestore,ambiguous,expected)=item
+            topology=current;trusted=true;pointer=false
+            let fake=FixtureService()
+            let saved=SavedWindow(identity:fake.record.identity,displayID:destination.id,
+                frame:destination.id == "portrait" ? Rect(-700,40,500,600):Rect(-1500,40,900,600),sourceVisible:destination.visible)
+            var db=Database();db.preferences.stageFill=true;db.preferences.autoRestore=autoRestore
+            var windows=[saved]
+            if ambiguous { windows.append(SavedWindow(identity:saved.identity,displayID:display.id,frame:Rect(30,40,500,300),sourceVisible:display.visible)) }
+            db.profiles=[Profile(name:"Saved setup",topology:savedTopology,windows:windows)]
+            let store=LayoutStore(directory:root.appendingPathComponent("routing-\(index)"));try store.save(db)
+            var routedEnv=env;routedEnv.stageManagerEnabled={ true };routedEnv.stageDisplay={ $0 }
+            let engine=Engine(service:fake,store:store,environment:routedEnv)
+            awaitCondition { fake.moves > 0 }
+            check(name,fake.record.frame == expected && fake.moves == 1)
+            check("routing \(index) preserves profiles and history",(try? store.load()) == db)
+            if index == 0 {
+                pump(2.2)
+                pointerPoint=CGPoint(x:-1300,y:5);pointer=true;engine.pointerEvent(down:true)
+                fake.record.frame=Rect(100,50,900,700)
+                pointerPoint=CGPoint(x:400,y:55);pointer=false;engine.pointerEvent(down:false)
+                pump(3.3)
+                check("manual cross-screen drag is not immediately snapped back",fake.record.frame == Rect(100,50,900,700))
+                fake.onEvent?(fake.record.pid,kAXApplicationActivatedNotification,fake.record.element)
+                awaitCondition { fake.record.frame == expected }
+                check("next activation returns temporary move to saved display",fake.record.frame == expected && (try? store.load()) == db)
+            }
+            engine.togglePause()
+        }
+        topology=verticalPair
+        let fake=FixtureService();fake.record.frame=Rect(-700,100,500,700)
+        let store=LayoutStore(directory:root.appendingPathComponent("portrait-to-landscape"))
+        var db=Database();db.preferences.stageFill=true;db.preferences.autoRestore=true
+        db.profiles=[Profile(name:"Return",topology:verticalPair,windows:[SavedWindow(identity:fake.record.identity,displayID:display.id,frame:Rect(30,40,500,300),sourceVisible:display.visible)])]
+        try store.save(db)
+        var routedEnv=env;routedEnv.stageManagerEnabled={ true };routedEnv.stageDisplay={ $0 }
+        let routed=Engine(service:fake,store:store,environment:routedEnv)
+        awaitCondition { fake.moves > 0 }
+        check("window stranded on portrait returns to saved landscape",fake.record.frame == Rect(200,0,1000,900))
+        routed.togglePause()
+    } catch { failed+=1;print("FAIL ENGINE destination routing: \(error)") }
     print("ENGINE_TESTS passed=\(passed) failed=\(failed); injected adapter, not physical AX or Stage Manager validation")
     return failed == 0 ? 0:1
 }
