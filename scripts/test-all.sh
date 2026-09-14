@@ -1,11 +1,15 @@
 #!/bin/zsh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+zsh scripts/generate-icon.sh
+test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIconFile' Resources/Info.plist)" = AppIcon.icns
 swift run CoreTests
 swift build --product WindowLayoutMemory
 swift run WindowLayoutMemory --self-test-engine
 swift run WindowLayoutMemory --self-test-preview
 swift run WindowLayoutMemory --self-test-about
+ruby scripts/check-docs.rb
+ruby scripts/test-docs-check.rb
 git diff --check
 plutil -lint Resources/Info.plist
 test "$(tr -d '[:space:]' < VERSION)" = "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"

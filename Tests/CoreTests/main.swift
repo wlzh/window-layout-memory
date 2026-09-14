@@ -186,6 +186,33 @@ test("portrait mode is independently opt in and backward compatible") {
     try expect(p.anyStageFill && !p.stageFill)
     try expect(try JSONDecoder().decode(Preferences.self,from:JSONEncoder().encode(p)) == p)
 }
+test("portrait inset preference migrates enabled and persists disabled") {
+    try expect(Preferences().stagePortraitKeepInset)
+    try expect(JSONDecoder().decode(Preferences.self,from:Data("{}".utf8)).stagePortraitKeepInset)
+    var p=Preferences();p.stagePortraitKeepInset=false
+    try expect(JSONDecoder().decode(Preferences.self,from:JSONEncoder().encode(p)) == p)
+}
+test("portrait zero inset preserves saved values and landscape behavior") {
+    let portrait=Display(id:"p",name:"Portrait",frame:Rect(-800,0,800,1200))
+    let landscape=Display(id:"l",name:"Landscape",frame:Rect(0,0,1200,800))
+    let topology=Topology([portrait,landscape])
+    var p=Preferences()
+    let key=StageFill.insetKey(topology:topology,display:portrait)
+    p.stageInsets[key]=150
+    p.stagePortraitKeepInset=false
+    try expect(p.stageInset(topology:topology,display:portrait) == 0)
+    try expect(p.stageInset(topology:topology,display:landscape) == 100)
+    try expect(p.stageInsets[key] == 150)
+    p.stagePortraitKeepInset=true
+    try expect(p.stageInset(topology:topology,display:portrait) == 150)
+}
+test("portrait zero inset respects visible dock and vertical geometry") {
+    let d=Display(id:"p",name:"Portrait",frame:Rect(-800,0,800,1200),visible:Rect(-740,25,740,1100))
+    let frame=Rect(-600,80,400,500)
+    try expect(StageFill.portraitTarget(display:d,frame:frame,inset:0) == Rect(-740,80,740,500))
+    let hidden=StageFill.workArea(d,dockHidden:true,orientation:"left")
+    try expect(StageFill.portraitTarget(display:hidden,frame:frame,inset:0) == Rect(-800,80,800,500))
+}
 test("portrait target preserves vertical placement and shares inset") {
     let d=Display(id:"p",name:"P",frame:Rect(-800,-200,800,1200),visible:Rect(-800,-175,800,1100))
     try expect(StageFill.portraitTarget(display:d,frame:Rect(-650,20,400,500)) == Rect(-700,20,700,500))
@@ -684,6 +711,79 @@ test("stage child option permits only known standard child windows") {
     }
     try expect(!StageWindowTraits(role:"AXSheet").permits(includeChildren:true))
     try expect(!StageWindowTraits(modal:true).permits(includeChildren:true))
+}
+test("file extension rule matches filenames not content and remains scoped") {
+    var rule=StageWindowRule(bundle:"wechat",identifier:"",role:"AXWindow",subrole:"AXStandardWindow")
+    rule.fileExtension="pdf"
+    try expect(rule.valid)
+    for title in ["first.pdf","第二份.PDF","many.dots.PdF"] {
+        try expect(rule.matches(WindowIdentity(bundle:"wechat",title:title),traits:StageWindowTraits()))
+    }
+    for title in ["微信","pdf",".pdf","first.pdf.exe","first.pdf - 微信","first.pdf ","other.docx"] {
+        try expect(!rule.matches(WindowIdentity(bundle:"wechat",title:title),traits:StageWindowTraits()))
+    }
+    try expect(!rule.matches(WindowIdentity(bundle:"other",title:"first.pdf"),traits:StageWindowTraits()))
+    try expect(!rule.matches(WindowIdentity(bundle:"wechat",title:"first.pdf"),traits:StageWindowTraits(subrole:"AXDialog")))
+    var db=Database();db.preferences.stageExcludedKinds=[rule];try db.validate()
+    try expect(JSONDecoder().decode(Database.self,from:JSONEncoder().encode(db)) == db)
+    var bad=rule;bad.exactTitle="first.pdf";try expect(!bad.valid)
+    bad=rule;bad.identifier="mixed";try expect(!bad.valid)
+    bad=rule;bad.fileExtension="PDF";try expect(!bad.valid)
+    bad=rule;bad.fileExtension="exe";try expect(!bad.valid)
+}
+test("file type detection is bounded and supports each documented extension") {
+    for ext in StageWindowRule.supportedExtensions {
+        try expect(StageWindowRule.extensionInTitle("file."+ext.uppercased()) == ext)
+    }
+    try expect(StageWindowRule.extensionInTitle(String(repeating:"x",count:1024)+".pdf") == nil)
+    try expect(StageWindowRule.extensionInTitle("Meeting 12.30") == nil)
+}
+test("explicit exact title rules isolate application role and entire title") {
+    var rule=StageWindowRule(bundle:"com.tencent.xinWeChat",identifier:"",role:"AXWindow",subrole:"AXStandardWindow")
+    rule.exactTitle="群聊的聊天记录"
+    let window=WindowIdentity(bundle:rule.bundle,title:"群聊的聊天记录")
+    try expect(rule.valid && rule.matches(window,traits:StageWindowTraits()))
+    try expect(!rule.matches(WindowIdentity(bundle:"other",title:window.title),traits:StageWindowTraits()))
+    try expect(!rule.matches(WindowIdentity(bundle:rule.bundle,title:"微信"),traits:StageWindowTraits()))
+    try expect(!rule.matches(WindowIdentity(bundle:rule.bundle,title:window.title+" "),traits:StageWindowTraits()))
+    try expect(!rule.matches(window,traits:StageWindowTraits(subrole:"AXDialog")))
+    var db=Database();db.preferences.stageExcludedKinds=[rule]
+    try db.validate()
+    let decoded=try JSONDecoder().decode(Database.self,from:JSONEncoder().encode(db))
+    try expect(decoded.preferences.stageExcludedKinds == [rule.normalized])
+    var bad=rule;bad.exactTitle="  ";try expect(!bad.valid)
+    bad=rule;bad.identifier="mixed";try expect(!bad.valid)
+    bad=rule;bad.exactTitle=String(repeating:"x",count:1025);try expect(!bad.valid)
+}
+test("chat history migration merges contacts and preserves unrelated rules") {
+    var first=StageWindowRule(bundle:"com.tencent.xinWeChat",identifier:"",role:"AXWindow",subrole:"AXStandardWindow")
+    first.exactTitle="甲的聊天记录"
+    var second=first;second.exactTitle="乙的聊天记录"
+    var search=first;search.exactTitle="搜索聊天记录"
+    var image=first;image.exactTitle="图片和视频"
+    var db=Database();db.preferences.stageExcludedKinds=[first,second,search,image]
+    let migrated=try JSONDecoder().decode(Database.self,from:JSONEncoder().encode(db))
+    try migrated.validate()
+    try expect(migrated.preferences.stageExcludedKinds == [first.normalized,image])
+    try expect(JSONDecoder().decode(Database.self,from:JSONEncoder().encode(migrated)) == migrated)
+    let rule=first.normalized
+    for title in ["丙的聊天记录","群聊的聊天记录","搜索聊天记录"] {
+        try expect(rule.matches(WindowIdentity(bundle:first.bundle,title:title),traits:StageWindowTraits()))
+    }
+    for title in ["微信","的聊天记录","聊天记录","甲的聊天记录.pdf","甲的聊天记录 "] {
+        try expect(!rule.matches(WindowIdentity(bundle:first.bundle,title:title),traits:StageWindowTraits()))
+    }
+    try expect(!rule.matches(WindowIdentity(bundle:"com.tencent.xinWeChat2",title:"甲的聊天记录"),traits:StageWindowTraits()))
+    var invalid=rule;invalid.fileExtension="pdf";try expect(!invalid.valid)
+    invalid=rule;invalid.windowCategory="unknown";try expect(!invalid.valid)
+    invalid=rule;invalid.bundle="other";try expect(!invalid.valid)
+    try expect(!rule.matches(WindowIdentity(bundle:first.bundle,title:"甲的聊天记录"),traits:StageWindowTraits(subrole:"AXDialog")))
+}
+test("old identifier rules decode without title and retain exact matching") {
+    let json=Data(#"{"bundle":"app","identifier":"viewer","role":"AXWindow","subrole":"AXStandardWindow"}"#.utf8)
+    let rule=try JSONDecoder().decode(StageWindowRule.self,from:json)
+    try expect(rule.exactTitle == nil && rule.valid)
+    try expect(rule.matches(WindowIdentity(bundle:"app",title:"changed",identifier:"viewer"),traits:StageWindowTraits()))
 }
 test("stage child preferences migrate from older schema and roundtrip") {
     let old=try JSONDecoder().decode(Preferences.self,from:Data("{\"stageFill\":true,\"stageInsets\":{\"screen\":150}}".utf8))

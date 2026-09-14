@@ -1,0 +1,5 @@
+# 文件类型例外：实现
+
+StageWindowRule增加可选fileExtension，和exactTitle互斥，类型规则的identifier必须为空。扩展名限定为静态支持集合并以小写存储；按NSString.pathExtension读取窗口标题末尾扩展名，不访问磁盘。标题长度上限1024字节。
+
+引擎stageFileRule负责构造，菜单动作重新核对前台目标；继续通过stagePermits阻止对应方向的铺满/恢复/学习旁路。删除StageWindowTraits中的微信专属判断，使用通用角色和父级门禁。无新增任务、依赖或权限，schema 1保持，降级限制见用户指南。

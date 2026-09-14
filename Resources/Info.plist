@@ -6,9 +6,10 @@
 <key>CFBundleDisplayName</key><string>Window Layout Memory</string>
 <key>CFBundleExecutable</key><string>WindowLayoutMemory</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>AppIcon.icns</string>
 <key>CFBundleShortVersionString</key><string>0.3.0</string>
-<key>CFBundleVersion</key><string>20</string>
-<key>WLMReleaseChannel</key><string>preview.13</string>
+<key>CFBundleVersion</key><string>26</string>
+<key>WLMReleaseChannel</key><string>preview.19</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>

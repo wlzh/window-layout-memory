@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var about: AboutWindowController?
     var exceptionSections: [ExceptionSection]=[]
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.applicationIconImage=BrandIcon.image
         engine=Engine()
         item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
         item.button?.image=NSImage(systemSymbolName:"rectangle.3.group",accessibilityDescription:"窗口布局记忆")
@@ -57,9 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fill.toolTip="仅系统台前调度开启时生效；默认左留100 pt，可拖左边缘调整"
         let portrait=add(stage,"竖屏横向撑满",#selector(toggleStagePortraitFill),enabled:!engine.busy)
         portrait.state=engine.database.preferences.stagePortraitFill ? .on:.off
-        portrait.toolTip="默认关闭；左右撑满并保留左侧留白，纵向位置和高度不变，越界时修正；共用铺满例外"
+        portrait.toolTip="默认关闭；纵向位置和高度不变，越界时修正；左侧是否留白由下方选项控制，共用铺满例外"
+        let portraitInset=add(stage,"竖屏保留左侧留白",#selector(toggleStagePortraitInset),enabled:engine.database.preferences.stagePortraitFill && !engine.busy)
+        portraitInset.indentationLevel=1;portraitInset.state=engine.database.preferences.stagePortraitKeepInset ? .on:.off
+        portraitInset.toolTip="默认开启；关闭后竖屏左右贴可用工作区，不影响横屏或删除已记忆留白；重新开启沿用原值"
         let children=add(stage,"同时铺满子窗口",#selector(toggleStageChildren),enabled:engine.database.preferences.anyStageFill && !engine.busy)
         children.indentationLevel=1;children.state=engine.database.preferences.stageFillChildren ? .on:.off
+        children.toolTip="横屏与竖屏共用；用户保存的窗口例外始终优先"
         stage.addItem(.separator())
         let exceptions=NSMenu()
         let windowActions=NSMenu()
@@ -74,7 +79,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 entry.representedObject=rule
                 entry.state=engine.database.preferences.stageExcludedKinds.contains(rule) ? .on:.off
             } else {
-                add(windowActions,"无法永久排除：应用未提供可靠窗口标识",nil)
+                add(windowActions,"无法按标识排除：应用未提供窗口标识",nil)
+            }
+            if let rule=engine.stageTitleRule(for:record) {
+                let title=rule.windowCategory == nil ? "永久排除标题：\((rule.exactTitle ?? "").prefix(48))" : "永久排除此应用的聊天记录窗口"
+                let entry=add(windowActions,title,#selector(toggleStageTitle(_:)),enabled:!engine.busy && (engine.database.preferences.stageExcludedKinds.count < 200 || engine.database.preferences.stageExcludedKinds.contains(rule)))
+                entry.representedObject=rule;entry.state=engine.database.preferences.stageExcludedKinds.contains(rule) ? .on:.off
+                entry.toolTip=rule.windowCategory == nil ? "仅此应用、此类型且标题完全一致：\(rule.exactTitle ?? "")。同名窗口都会排除，改名后不匹配；横竖屏共用，点击添加或撤销。" : "排除此微信实例中以‘的聊天记录’结尾的窗口及‘搜索聊天记录’；不含微信主窗口。横竖屏共用，点击撤销。"
+            } else {
+                add(windowActions,"无法按标题排除：标题为空或不可用",nil)
+            }
+            if let rule=engine.stageFileRule(for:record) {
+                let entry=add(windowActions,"永久排除此应用的 \(rule.fileExtension!.uppercased()) 文件窗口",#selector(toggleStageFile(_:)),enabled:!engine.busy && (engine.database.preferences.stageExcludedKinds.count < 200 || engine.database.preferences.stageExcludedKinds.contains(rule)))
+                entry.representedObject=rule;entry.state=engine.database.preferences.stageExcludedKinds.contains(rule) ? .on:.off
+                entry.toolTip="仅此应用和此窗口类型，标题以 .\(rule.fileExtension!) 结尾，不区分扩展名大小写。不读取文件内容；其它文件名同样生效。"
             }
         } else {
             let reason = !engine.hasAccessibilityPermission ? "需要辅助功能授权" : engine.guardState.paused ? "自动操作已暂停" : engine.guardState.settling ? "显示配置仍在核对" : "请激活目标窗口并等待核对后重新打开菜单"
@@ -82,8 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if !engine.database.preferences.stageExcludedKinds.isEmpty {
             for rule in engine.database.preferences.stageExcludedKinds {
-                let entry=add(exceptions,"\(rule.bundle) / \(rule.identifier.prefix(48))",#selector(removeStageKind(_:)),enabled:!engine.busy)
-                entry.state = .on;entry.toolTip="点击取消排除：\(rule.identifier)"
+                let label=rule.windowCategory.map { _ in "类型 = 聊天记录窗口" } ?? rule.fileExtension.map { "文件类型 = .\($0)" } ?? rule.exactTitle.map { "标题 = \($0)" } ?? "标识 = \(rule.identifier)"
+                let entry=add(exceptions,"\(rule.bundle) / \(label.prefix(60))",#selector(removeStageKind(_:)),enabled:!engine.busy)
+                entry.state = .on;entry.toolTip="点击取消排除：\(label)"
                 entry.representedObject=rule
             }
         }
@@ -244,8 +263,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     @objc func toggleStageChildren() { engine.setPreferences { $0.stageFillChildren.toggle() } }
     @objc func toggleStagePortraitFill() {
-        if !engine.database.preferences.stagePortraitFill && !confirm("仅台前调度开启时，将竖屏前台窗口横向撑满。沿用此组合/显示器的左侧留白，默认100 pt；保留纵向位置和高度，越界时夹回工作区。共用应用与窗口例外。成功后保存实际窗口布局，锁定布局不覆盖。") { return }
+        if !engine.database.preferences.stagePortraitFill && !confirm("仅台前调度开启时，将竖屏前台窗口横向撑满。可用下方选项选择是否保留左侧留白；保留时沿用此组合/显示器的记录，默认100 pt。不留白时左右贴可用工作区。保留纵向位置和高度，越界时夹回工作区。共用应用与窗口例外。成功后保存实际窗口布局，锁定布局不覆盖。") { return }
         engine.setPreferences { $0.stagePortraitFill.toggle() }
+    }
+    @objc func toggleStagePortraitInset() {
+        engine.setPreferences { $0.stagePortraitKeepInset.toggle() }
     }
     @objc func toggleStageWindow(_ sender:NSMenuItem) {
         guard let token=sender.representedObject as? String else { return }
@@ -257,6 +279,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !engine.busy,let record=engine.stageMenuRecord,engine.stageRule(for:record) == rule else { return }
         guard confirm("永久排除此应用中相同AX标识的窗口：\(rule.bundle) / \(rule.identifier)。应用可能复用标识，这也会排除使用相同标识的主窗口；不按标题或图片内容猜测。可从台前调度铺满 → 铺满例外撤销。") else { return }
         engine.setPreferences { if $0.stageExcludedKinds.count < 200 { $0.stageExcludedKinds.append(rule) } }
+    }
+    @objc func toggleStageTitle(_ sender:NSMenuItem) {
+        guard let rule=sender.representedObject as? StageWindowRule,(rule.exactTitle != nil || rule.windowCategory != nil),rule.valid,
+              !engine.busy,let record=engine.stageMenuRecord,engine.stageTitleRule(for:record) == rule else { return }
+        engine.setPreferences {
+            if $0.stageExcludedKinds.contains(rule) { $0.stageExcludedKinds.removeAll { $0 == rule } }
+            else if $0.stageExcludedKinds.count < 200 { $0.stageExcludedKinds.append(rule) }
+        }
+    }
+    @objc func toggleStageFile(_ sender:NSMenuItem) {
+        guard let rule=sender.representedObject as? StageWindowRule,rule.fileExtension != nil,rule.valid,
+              !engine.busy,let record=engine.stageMenuRecord,engine.stageFileRule(for:record) == rule else { return }
+        engine.setPreferences {
+            if $0.stageExcludedKinds.contains(rule) { $0.stageExcludedKinds.removeAll { $0 == rule } }
+            else if $0.stageExcludedKinds.count < 200 { $0.stageExcludedKinds.append(rule) }
+        }
     }
     @objc func removeStageKind(_ sender:NSMenuItem) {
         guard let rule=sender.representedObject as? StageWindowRule else { return }

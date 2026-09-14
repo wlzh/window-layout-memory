@@ -4,6 +4,12 @@
 
 | 目标版本 | 状态 | 文档 | 发布状态 |
 | --- | --- | --- | --- |
+| v0.3.0-preview.19 | 聊天记录类型规则及迁移 | [PRD](v0.3.0-preview.19/prd.md)、[设计](v0.3.0-preview.19/design.md)、[技术](v0.3.0-preview.19/dev.md)、[计划](v0.3.0-preview.19/plan.md) | build 26，证据见总览 |
+| v0.3.0-preview.18 | 正式应用图标与打包门禁 | [PRD](v0.3.0-preview.18/prd.md)、[设计](v0.3.0-preview.18/design.md)、[技术](v0.3.0-preview.18/dev.md)、[计划](v0.3.0-preview.18/plan.md) | build 25，证据见总览 |
+| v0.3.0-preview.17 | 文件类型例外、移除图片硬编码 | [PRD](v0.3.0-preview.17/prd.md)、[设计](v0.3.0-preview.17/design.md)、[技术](v0.3.0-preview.17/dev.md)、[计划](v0.3.0-preview.17/plan.md) | build 24，证据见总览 |
+| v0.3.0-preview.16 | 自定义精确标题例外 | [PRD](v0.3.0-preview.16/prd.md)、[设计](v0.3.0-preview.16/design.md)、[技术](v0.3.0-preview.16/dev.md)、[计划](v0.3.0-preview.16/plan.md) | build 23，证据见总览 |
+| v0.3.0-preview.15 | 竖屏留白开关 | [PRD](v0.3.0-preview.15/prd.md)、[设计](v0.3.0-preview.15/design.md)、[技术](v0.3.0-preview.15/dev.md)、[计划](v0.3.0-preview.15/plan.md) | build 22，证据见总览 |
+| v0.3.0-preview.14 | 微信看图子窗口兼容 | [PRD](v0.3.0-preview.14/prd.md)、[设计](v0.3.0-preview.14/design.md)、[技术](v0.3.0-preview.14/dev.md)、[计划](v0.3.0-preview.14/plan.md) | build 21，证据见总览 |
 | v0.3.0-preview.13 | 竖屏横向撑满 | [PRD](v0.3.0-preview.13/prd.md)、[设计](v0.3.0-preview.13/design.md)、[技术](v0.3.0-preview.13/dev.md)、[计划](v0.3.0-preview.13/plan.md) | build 20，证据见总览 |
 | v0.3.0-preview.12 | 铺满例外统一管理 | [PRD](v0.3.0-preview.12/prd.md)、[设计](v0.3.0-preview.12/design.md)、[技术](v0.3.0-preview.12/dev.md)、[计划](v0.3.0-preview.12/plan.md) | build 19，验收见总览 |
 | v0.3.0-preview.11 | 铺满结果保存、手动换屏优先 | [PRD](v0.3.0-preview.11/prd.md)、[设计](v0.3.0-preview.11/design.md)、[技术](v0.3.0-preview.11/dev.md)、[计划](v0.3.0-preview.11/plan.md) | build 17候选，验收见总览 |

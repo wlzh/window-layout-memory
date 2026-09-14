@@ -17,6 +17,7 @@ Dir.mktmpdir('wlm-doc-check-') do |dir|
   end
   check.call('valid fixture', true, 'errors=0')
   mutations = [
+    ['Resources/Info.plist', ->(s) { s.sub('AppIcon.icns', 'Missing.icns') }, 'CFBundleIconFile'],
     ['README.md', ->(s) { s + "\n[broken](docs/not-present.md)\n" }, 'missing docs/not-present.md'],
     ['BUILD_NUMBER', ->(_s) { "999\n" }, 'CFBundleVersion'],
     ['Sources/WindowLayoutMemory/Platform.swift', ->(s) { s.sub("?? \"#{File.read(File.join(dir, 'RELEASE_CHANNEL')).strip}\"", '?? "broken"') }, 'fallback differs'],

@@ -9,12 +9,20 @@ func runAboutChecks() -> Int32 {
         else { failed+=1;print("FAIL ABOUT \(name)") }
     }
     var opened:[URL]=[]
+    check("brand icon decodes and is reused",BrandIcon.image.isValid && BrandIcon.image === BrandIcon.image)
+    let iconBitmap=BrandIcon.bitmap(pixels:128)
+    check("brand icon bitmap has transparent corners and opaque center",iconBitmap.pixelsWide == 128 && iconBitmap.colorAt(x:0,y:0)!.alphaComponent < 0.01 && iconBitmap.colorAt(x:64,y:64)!.alphaComponent > 0.99)
     weak var releasedController: AboutWindowController?
     weak var releasedWindow: NSWindow?
     weak var releasedView: NSView?
     autoreleasepool {
         var controller: AboutWindowController?=AboutWindowController(openURL:{ opened.append($0) })
         releasedController=controller;releasedWindow=controller?.window;releasedView=controller?.window?.contentView
+        func hasBrandIcon(_ view:NSView)->Bool {
+            if let icon=view as? NSImageView,icon.image === BrandIcon.image { return true }
+            return view.subviews.contains(where:hasBrandIcon)
+        }
+        check("about uses the shared application icon",hasBrandIcon(controller!.window!.contentView!))
         check("metadata matches runtime version",controller?.versionText == "版本 \(AppVersion.marketing)-\(AppVersion.channel) · Build \(AppVersion.build)")
         check("all six destinations are available",controller?.links.count == AboutLink.allCases.count)
         check("destinations use HTTPS",AboutLink.allCases.allSatisfy { $0.url.scheme == "https" })

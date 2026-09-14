@@ -70,11 +70,10 @@ final class AboutWindowController: NSWindowController, NSWindowDelegate {
             links.append(button);return button
         }
         let icon=NSImageView()
-        icon.image=NSImage(systemSymbolName:"rectangle.3.group.fill",accessibilityDescription:"窗口布局记忆")
-        icon.symbolConfiguration=NSImage.SymbolConfiguration(pointSize:42,weight:.regular)
-        icon.contentTintColor = .controlAccentColor
+        icon.image=BrandIcon.image
+        icon.setAccessibilityLabel("窗口布局记忆应用图标")
         icon.widthAnchor.constraint(equalToConstant:72).isActive=true
-        icon.heightAnchor.constraint(equalToConstant:64).isActive=true
+        icon.heightAnchor.constraint(equalToConstant:72).isActive=true
         let title=label("窗口布局记忆",25,.labelColor,.semibold)
         let identity=stack([title,label("Window Layout Memory",13,.secondaryLabelColor),
             label(versionText,11,.secondaryLabelColor),label("开发预览",11,.systemOrange,.medium)])

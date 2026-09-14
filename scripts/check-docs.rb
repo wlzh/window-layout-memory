@@ -30,11 +30,13 @@ end
 {
   'CFBundleShortVersionString' => version,
   'WLMReleaseChannel' => channel,
-  'CFBundleVersion' => build
+  'CFBundleVersion' => build,
+  'CFBundleIconFile' => 'AppIcon.icns'
 }.each do |key, expected|
   actual, stderr, status = Open3.capture3('/usr/libexec/PlistBuddy', '-c', "Print #{key}", root.join('Resources/Info.plist').to_s)
   errors << "plist #{key}: #{stderr.strip} / #{actual.strip} != #{expected}" unless status.success? && actual.strip == expected
 end
+errors << 'missing AppIcon.icns resource' unless root.join('Resources/AppIcon.icns').file?
 platform = root.join('Sources/WindowLayoutMemory/Platform.swift').read
 { 'marketing' => version, 'channel' => channel, 'build' => build }.each do |key, expected|
   line = platform.lines.find { |s| s.include?("static var #{key}:") }

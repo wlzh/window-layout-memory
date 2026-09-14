@@ -273,6 +273,22 @@ func runEngineChecks() -> Int32 {
         let portraitInsetKey=StageFill.insetKey(topology:topology,display:topology.displays[0])
         awaitCondition { !stage.busy && stage.database.preferences.stageInsets[portraitInsetKey] == 150 }
         check("portrait learns same inset without vertical expansion",stage.database.preferences.stageInsets[portraitInsetKey] == 150 && fake.record.frame == Rect(150,240,650,440))
+        stage.setPreferences { $0.stagePortraitKeepInset=false }
+        awaitCondition { !stage.busy && stage.profile?.windows.first?.frame == Rect(0,240,800,440) }
+        check("portrait disabling inset fills work width and saves",fake.record.frame == Rect(0,240,800,440) && stage.profile?.windows.first?.frame == fake.record.frame)
+        check("portrait disabled inset preserves original saved gap",stage.database.preferences.stageInsets[portraitInsetKey] == 150)
+        let noGapMenu=NSMenu();portraitDelegate.menuWillOpen(noGapMenu)
+        check("portrait inset menu is enabled unchecked and routed",find(noGapMenu,"竖屏保留左侧留白")?.state == .off && find(noGapMenu,"竖屏保留左侧留白")?.isEnabled == true && find(noGapMenu,"竖屏保留左侧留白")?.action == NSSelectorFromString("toggleStagePortraitInset"))
+        pump(2.2)
+        pointerPoint=CGPoint(x:0,y:400);pointer=true;stage.pointerEvent(down:true)
+        fake.record.frame=Rect(80,240,720,440);pointerPoint.x=80;pointer=false;stage.pointerEvent(down:false)
+        awaitCondition { !stage.busy && fake.record.frame == Rect(0,240,800,440) }
+        check("portrait zero gap edge gesture neither learns nor leaves gap",fake.record.frame == Rect(0,240,800,440) && stage.database.preferences.stageInsets[portraitInsetKey] == 150)
+        let noGapReload=try stageStore.load()
+        check("portrait zero gap preference survives store reload",noGapReload.preferences.stagePortraitKeepInset == false)
+        stage.setPreferences { $0.stagePortraitKeepInset=true }
+        awaitCondition { !stage.busy && stage.profile?.windows.first?.frame == Rect(150,240,650,440) }
+        check("portrait reenabling gap restores saved value",fake.record.frame == Rect(150,240,650,440))
         let portraitCount=fake.moves
         for _ in 0..<1000 { fake.emit() };pump(0.8)
         check("portrait geometry events do not loop",fake.moves == portraitCount)
@@ -394,10 +410,18 @@ func runEngineChecks() -> Int32 {
         pump(2.2)
         check("child default blocks fill and automatic restore fallback",fake.moves == 0 && fake.record.frame == original)
         check("child default does not learn candidate or mutate baseline",child.candidates.isEmpty && child.database.profiles == db.profiles)
+        let previousIdentity=fake.record.identity,previousTraits=fake.record.stageTraits
+        fake.record.identity=WindowIdentity(bundle:"com.tencent.xinWeChat",title:"图片和视频")
+        fake.record.stageTraits=StageWindowTraits()
+        check("WeChat media viewer has no hardcoded child exclusion",child.stagePermits(fake.record))
+        fake.record.identity.title="微信"
+        check("WeChat main window remains permitted",child.stagePermits(fake.record))
+        fake.record.identity=previousIdentity;fake.record.stageTraits=previousTraits
         let delegate=AppDelegate();delegate.engine=child
         let menu=NSMenu();menu.autoenablesItems=false;delegate.menuWillOpen(menu)
         let option=find(menu,"同时铺满子窗口")
         check("child menu is indented unchecked and enabled under master",option?.state == .off && option?.indentationLevel == 1 && option?.isEnabled == true)
+        check("portrait inset menu disabled when portrait mode is off",find(menu,"竖屏保留左侧留白")?.isEnabled == false && find(menu,"竖屏保留左侧留白")?.state == .on)
         check("redundant 100 point menu removed",!menu.items.contains { $0.title.contains("留白设为100") })
         let exclusions=delegate.exceptionSections.first { $0.title == "当前窗口" }?.menu
         check("identified window offers persistent and session exclusion",exclusions?.items.contains { $0.title == "永久排除此类窗口…" } == true && exclusions?.items.contains { $0.title == "当前窗口暂不铺满" } == true)
@@ -409,6 +433,7 @@ func runEngineChecks() -> Int32 {
         check("root has twelve entries and four functional groups",menu.items.filter { !$0.isSeparatorItem }.count == 12 && menu.items.filter { $0.submenu != nil }.map(\.title) == ["台前调度铺满","自动记忆与恢复","布局管理","设置与诊断"])
         let routes:[(String,String,String)] = [
             ("台前调度铺满","横屏自动铺满","toggleStageFill"),
+            ("台前调度铺满","竖屏保留左侧留白","toggleStagePortraitInset"),
             ("台前调度铺满","同时铺满子窗口","toggleStageChildren"),
             ("自动记忆与恢复","自动核对窗口变化","toggleObserve"),
             ("自动记忆与恢复","自动记忆手动调整","toggleRemember"),
@@ -457,7 +482,7 @@ func runEngineChecks() -> Int32 {
         fake.record.identity.identifier=""
         check("missing identifier never creates broad persistent rule",child.stageRule(for:fake.record) == nil)
         fake.emit();pump(2.2);delegate.menuWillOpen(menu)
-        check("menu offers only session fallback without identifier",delegate.exceptionSections.first { $0.title == "当前窗口" }?.menu.items.contains { $0.title.contains("未提供可靠窗口标识") && !$0.isEnabled } == true)
+        check("menu explains missing identifier without hiding title alternative",delegate.exceptionSections.first { $0.title == "当前窗口" }?.menu.items.contains { $0.title.contains("未提供窗口标识") && !$0.isEnabled } == true)
         child.toggleStageSessionExclusion(fake.record.token);pump(2.2)
         fake.omitWindow=true;fake.emit();pump(0.6)
         check("complete scan clears closed window session exclusion",child.stageSessionExclusions.isEmpty)
@@ -479,6 +504,78 @@ func runEngineChecks() -> Int32 {
         check("system stage off restores newly recorded filled baseline",fake.record.frame == child.profile?.windows.first?.frame)
         child.togglePause()
     } catch { failed+=1;print("FAIL ENGINE child policy: \(error)") }
+    do {
+        topology=Topology([display]);trusted=true;pointer=false
+        var titleEnv=env;titleEnv.stageManagerEnabled={ true };titleEnv.stageDisplay={ $0 }
+        let titleStore=LayoutStore(directory:root.appendingPathComponent("title-exclusion"))
+        let fake=FixtureService()
+        fake.record.identity=WindowIdentity(bundle:"com.tencent.xinWeChat",title:"群聊的聊天记录")
+        var db=Database();db.preferences.stageFill=true;db.preferences.stageFillChildren=true;db.preferences.autoRestore=true
+        try titleStore.save(db)
+        let engine=Engine(service:fake,store:titleStore,environment:titleEnv)
+        awaitCondition { !engine.busy && engine.profile?.windows.first?.frame == fake.record.frame }
+        let delegate=AppDelegate();delegate.engine=engine
+        let menu=NSMenu();delegate.menuWillOpen(menu)
+        let titleItem=find(menu,"永久排除此应用的聊天记录窗口")
+        check("title exclusion menu offers exact observed WeChat title",titleItem?.isEnabled == true && titleItem?.action == NSSelectorFromString("toggleStageTitle:"))
+        if let titleItem { delegate.toggleStageTitle(titleItem) }
+        awaitCondition { !engine.busy && engine.database.preferences.stageExcludedKinds.count == 1 }
+        let stored=try titleStore.load()
+        check("menu action persists chat history category",stored.preferences.stageExcludedKinds.first?.windowCategory == "wechatChatHistory")
+        var other=fake.record;other.identity.title="另一位联系人的聊天记录"
+        check("category excludes another contact",!engine.stagePermits(other))
+        other.identity.title="搜索聊天记录"
+        check("category excludes history search",!engine.stagePermits(other))
+        let baseline=engine.database.profiles,moves=fake.moves
+        fake.record.frame=Rect(230,200,500,450);fake.emit();pump(3)
+        check("title exclusion blocks fill restore and learning even with children enabled",fake.moves == moves && engine.candidates.isEmpty && engine.database.profiles == baseline)
+        var main=fake.record;main.identity.title="微信"
+        check("title exclusion keeps WeChat main window eligible",engine.stagePermits(main))
+        let rule=engine.database.preferences.stageExcludedKinds.first!
+        check("reloaded rule recognizes new window identity",rule.matches(WindowIdentity(bundle:"com.tencent.xinWeChat",title:"群聊的聊天记录",identifier:"new-instance"),traits:StageWindowTraits()))
+        let staleItem=NSMenuItem();var staleRule=rule;staleRule.exactTitle="different"
+        staleItem.representedObject=staleRule;delegate.toggleStageTitle(staleItem)
+        check("stale title target cannot add a rule",engine.database.preferences.stageExcludedKinds.count == 1)
+        let remove=NSMenuItem();remove.representedObject=rule;delegate.removeStageKind(remove)
+        awaitCondition { !engine.busy && engine.database.preferences.stageExcludedKinds.isEmpty && fake.moves > moves }
+        check("removing title rule restores normal fill",fake.moves > moves && engine.database.preferences.stageExcludedKinds.isEmpty)
+        engine.togglePause()
+    } catch { failed+=1;print("FAIL ENGINE title exclusion: \(error)") }
+    for portrait in [false,true] { do {
+        let screen=portrait ? Display(id:"file-portrait",name:"Portrait",frame:Rect(0,0,800,1200),primary:true):display
+        topology=Topology([screen]);trusted=true;pointer=false
+        var fileEnv=env;fileEnv.stageManagerEnabled={ true };fileEnv.stageDisplay={ $0 }
+        let fileStore=LayoutStore(directory:root.appendingPathComponent("file-exclusion-\(portrait)"))
+        let fake=FixtureService();fake.record.identity=WindowIdentity(bundle:"com.tencent.xinWeChat",title:"first.pdf")
+        var db=Database();db.preferences.stageFill = !portrait;db.preferences.stagePortraitFill=portrait
+        db.preferences.stageFillChildren=true;db.preferences.autoRestore=true
+        try fileStore.save(db)
+        let engine=Engine(service:fake,store:fileStore,environment:fileEnv)
+        awaitCondition { !engine.busy && engine.profile?.windows.first?.frame == fake.record.frame }
+        let delegate=AppDelegate();delegate.engine=engine
+        let menu=NSMenu();delegate.menuWillOpen(menu)
+        let entry=find(menu,"永久排除此应用的 PDF 文件窗口")
+        check("file type menu available \(portrait)",entry?.isEnabled == true && entry?.action == NSSelectorFromString("toggleStageFile:"))
+        if let entry { delegate.toggleStageFile(entry) }
+        awaitCondition { !engine.busy && engine.database.preferences.stageExcludedKinds.first?.fileExtension == "pdf" }
+        let reloaded=try fileStore.load()
+        check("file rule persists \(portrait)",reloaded.preferences.stageExcludedKinds.first?.fileExtension == "pdf")
+        let moves=fake.moves,baseline=engine.database.profiles
+        fake.record.identity.title="different.PDF";fake.record.frame=Rect(200,180,500,450);fake.emit();pump(3)
+        check("new PDF name blocks fill restore learning \(portrait)",fake.moves == moves && engine.database.profiles == baseline && engine.candidates.isEmpty)
+        var main=fake.record;main.identity.title="微信"
+        check("file rule does not exclude main window \(portrait)",engine.stagePermits(main) && engine.stageFileRule(for:main) == nil)
+        let rule=engine.database.preferences.stageExcludedKinds.first!
+        let remove=NSMenuItem();remove.representedObject=rule;delegate.removeStageKind(remove)
+        awaitCondition { !engine.busy && engine.database.preferences.stageExcludedKinds.isEmpty && fake.moves > moves }
+        check("file rule removal re-enables fill \(portrait)",fake.moves > moves)
+        var imageRule=rule;imageRule.fileExtension=nil;imageRule.exactTitle="图片和视频"
+        engine.setPreferences { $0.stageExcludedKinds=[imageRule] }
+        awaitCondition { !engine.busy && engine.database.preferences.stageExcludedKinds == [imageRule] }
+        var image=fake.record;image.identity.title="图片和视频"
+        check("user image rule still excludes with children enabled \(portrait)",!engine.stagePermits(image))
+        engine.togglePause()
+    } catch { failed+=1;print("FAIL ENGINE file exclusion: \(error)") } }
     do {
         topology=Topology([display]);trusted=true;pointer=false
         var appEnv=env;appEnv.stageManagerEnabled={ true };appEnv.stageDisplay={ $0 }

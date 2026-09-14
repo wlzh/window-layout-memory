@@ -96,6 +96,7 @@ public struct Preferences: Codable, Equatable {
     public var autoRemember = true
     public var stageFill = false
     public var stagePortraitFill = false
+    public var stagePortraitKeepInset = true
     public var anyStageFill: Bool { stageFill || stagePortraitFill }
     public var stageFillChildren = false
     public var stageExcludedKinds: [StageWindowRule] = []
@@ -103,7 +104,11 @@ public struct Preferences: Codable, Equatable {
     public var stageInsets: [String:Double] = [:]
     public var excludedBundles: [String] = []
     public init() {}
-    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stagePortraitFill, stageInsets, stageFillChildren, stageExcludedKinds, stageExcludedApplications }
+    public func stageInset(topology: Topology, display: Display) -> Double {
+        if display.frame.height > display.frame.width && !stagePortraitKeepInset { return 0 }
+        return stageInsets[StageFill.insetKey(topology:topology,display:display)] ?? StageFill.defaultInset
+    }
+    private enum CodingKeys: String, CodingKey { case autoObserve, autoRestore, autoRemember, excludedBundles, stageFill, stagePortraitFill, stagePortraitKeepInset, stageInsets, stageFillChildren, stageExcludedKinds, stageExcludedApplications }
     public init(from decoder: Decoder) throws {
         let c=try decoder.container(keyedBy:CodingKeys.self)
         autoObserve=try c.decodeIfPresent(Bool.self,forKey:.autoObserve) ?? true
@@ -111,8 +116,15 @@ public struct Preferences: Codable, Equatable {
         autoRemember=try c.decodeIfPresent(Bool.self,forKey:.autoRemember) ?? false
         stageFill=try c.decodeIfPresent(Bool.self,forKey:.stageFill) ?? false
         stagePortraitFill=try c.decodeIfPresent(Bool.self,forKey:.stagePortraitFill) ?? false
+        stagePortraitKeepInset=try c.decodeIfPresent(Bool.self,forKey:.stagePortraitKeepInset) ?? true
         stageFillChildren=try c.decodeIfPresent(Bool.self,forKey:.stageFillChildren) ?? false
         stageExcludedKinds=try c.decodeIfPresent([StageWindowRule].self,forKey:.stageExcludedKinds) ?? []
+        if stageExcludedKinds.count <= 200, stageExcludedKinds.allSatisfy(\.valid),
+           Set(stageExcludedKinds).count == stageExcludedKinds.count,
+           stageExcludedKinds.contains(where: { $0.normalized != $0 }) {
+            var seen=Set<StageWindowRule>()
+            stageExcludedKinds=stageExcludedKinds.map(\.normalized).filter { seen.insert($0).inserted }
+        }
         stageExcludedApplications=try c.decodeIfPresent([String:String].self,forKey:.stageExcludedApplications) ?? [:]
         stageInsets=try c.decodeIfPresent([String:Double].self,forKey:.stageInsets) ?? [:]
         excludedBundles=try c.decodeIfPresent([String].self,forKey:.excludedBundles) ?? []

@@ -285,6 +285,7 @@ final class Engine {
                                 }
                             }
                         } else if stageTarget(owner,frame:record.frame) != nil,
+                           (owner.frame.width >= owner.frame.height || database.preferences.stagePortraitKeepInset),
                            leftEdgeGestures.contains(record.token),let origin=gestureOrigins[record.token],
                            topology.owner(of:origin)?.id == owner.id,
                            let inset=StageFill.learnedInset(origin:origin,current:record.frame,display:environment.stageDisplay(owner)) {
@@ -328,7 +329,7 @@ final class Engine {
     private func stageTarget(_ display: Display, frame: Rect? = nil) -> Rect? {
         guard database.preferences.anyStageFill,environment.stageManagerEnabled() == true else { return nil }
         let work=environment.stageDisplay(display)
-        let inset=database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:display)] ?? StageFill.defaultInset
+        let inset=database.preferences.stageInset(topology:topology,display:display)
         if display.frame.height > display.frame.width {
             guard database.preferences.stagePortraitFill else { return nil }
             return StageFill.portraitTarget(display:work,frame:frame ?? work.visible,inset:inset)
@@ -357,7 +358,7 @@ final class Engine {
         return stageTarget(current,frame:record.frame)
     }
     private func rememberStageInset(_ inset: Double, display: Display, record: AXRecord) {
-        guard !storageFailed else { return }
+        guard !storageFailed,display.frame.width >= display.frame.height || database.preferences.stagePortraitKeepInset else { return }
         let key=StageFill.insetKey(topology:topology,display:display)
         var next=database
         next.preferences.stageInsets[key]=inset
@@ -537,6 +538,18 @@ final class Engine {
                                  role:record.stageTraits.role,subrole:record.stageTraits.subrole)
         return rule.valid ? rule:nil
     }
+    func stageTitleRule(for record: AXRecord) -> StageWindowRule? {
+        var rule=StageWindowRule(bundle:record.identity.bundle,identifier:"",
+                                 role:record.stageTraits.role,subrole:record.stageTraits.subrole)
+        rule.exactTitle=record.identity.title
+        return rule.valid ? rule.normalized:nil
+    }
+    func stageFileRule(for record: AXRecord) -> StageWindowRule? {
+        guard let ext=StageWindowRule.extensionInTitle(record.identity.title) else { return nil }
+        var rule=StageWindowRule(bundle:record.identity.bundle,identifier:"",role:record.stageTraits.role,subrole:record.stageTraits.subrole)
+        rule.fileExtension=ext
+        return rule.valid ? rule:nil
+    }
     func toggleStageSessionExclusion(_ token: String) {
         guard !busy,allRecords.contains(where:{ $0.token == token }) else { return }
         if stageSessionExclusions.contains(token) { stageSessionExclusions.remove(token) }
@@ -694,7 +707,7 @@ final class Engine {
     }
     func report() -> String {
         let matching=Matcher.assign(profile?.windows ?? [],allRecords.map(\.live),bindings:bindings)
-        let screenLines=topology.displays.map { "\($0.name) [UUID \($0.id.prefix(8))…]: \(Int($0.frame.width))×\(Int($0.frame.height)) @ (\(Int($0.frame.x)),\(Int($0.frame.y)))；铺满留白 \(Int(database.preferences.stageInsets[StageFill.insetKey(topology:topology,display:$0)] ?? StageFill.defaultInset)) pt\($0.frame.width > $0.frame.height ? "":($0.frame.height > $0.frame.width ? "（竖屏横向撑满由独立开关控制）":"（正方形，不铺满）"))" }
+        let screenLines=topology.displays.map { "\($0.name) [UUID \($0.id.prefix(8))…]: \(Int($0.frame.width))×\(Int($0.frame.height)) @ (\(Int($0.frame.x)),\(Int($0.frame.y)))；铺满留白 \(Int(database.preferences.stageInset(topology:topology,display:$0))) pt\($0.frame.width > $0.frame.height ? "":($0.frame.height > $0.frame.width ? "（竖屏横向撑满由独立开关控制）":"（正方形，不铺满）"))" }
         let windowLines=allRecords.sorted { $0.app < $1.app }.map { r in
             let owner=topology.owner(of:r.frame)?.name ?? "归属待确认"
             return "\(r.app) | \(owner) | (\(Int(r.frame.x)),\(Int(r.frame.y))) \(Int(r.frame.width))×\(Int(r.frame.height)) | \(candidates[r.token] != nil ? "已核对候选":r.usable && r.focused ? "核对中":"等待激活")"
@@ -706,7 +719,7 @@ final class Engine {
                  "匹配：\(matching.resolved.count)；歧义：\(matching.ambiguous.count)；待出现：\(matching.missing.count)",
                  "拖动自动记忆：\(database.preferences.autoRemember ? "开启":"关闭")；自动恢复：\(database.preferences.autoRestore ? "开启":"关闭")。不展开后台组。",
                  "台前调度横屏铺满：\(database.preferences.stageFill ? "开启":"关闭")；系统状态：\(environment.stageManagerEnabled().map { $0 ? "开启":"关闭" } ?? "未知（不铺满）")；默认留白100 pt，拖左边缘调整。",
-                 "竖屏横向撑满：\(database.preferences.stagePortraitFill ? "开启":"关闭")；保留纵向位置和高度，越界时夹回工作区。",
+                 "竖屏横向撑满：\(database.preferences.stagePortraitFill ? "开启":"关闭")；左侧留白：\(database.preferences.stagePortraitKeepInset ? "保留":"不保留")；保留纵向位置和高度，越界时夹回工作区。",
                  "子窗口铺满：\(database.preferences.stageFillChildren ? "开启":"关闭")；排除应用：\(database.preferences.stageExcludedApplications.count)；永久窗口规则：\(database.preferences.stageExcludedKinds.count)；临时窗口排除：\(stageSessionExclusions.count)。类型未知、对话框和浮动面板不铺满。",
                  "此版本尚未通过完整硬件与性能验收。", "\n显示器"]
         lines += screenLines
