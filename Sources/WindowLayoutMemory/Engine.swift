@@ -354,6 +354,11 @@ final class Engine {
                 return nil
             }
         }
+        if Matcher.usesApplicationWindow(record.identity.bundle),
+           profile?.windows.contains(where: { $0.identity.bundle == record.identity.bundle }) == true {
+            // Keep the destination when Telegram has conflicting legacy roles or multiple windows.
+            return nil
+        }
         // Unknown or ambiguous windows may fill locally, but never guess another screen.
         return stageTarget(current,frame:record.frame)
     }
@@ -436,6 +441,14 @@ final class Engine {
                   let display=topology.owner(of:record.frame),let target=stageTarget(display,frame:record.frame),
                   record.frame.close(to:target,tolerance:2) else { continue }
             let role=matching.resolved.first(where:{$0.value == record.token})?.key
+            if role == nil, Matcher.usesApplicationWindow(record.identity.bundle),
+               profile?.windows.contains(where: { $0.identity.bundle == record.identity.bundle }) == true {
+                issues["stage-save:\(record.token)"]="Telegram 身份未唯一匹配，保留原显示器记录";continue
+            }
+            if let role, let saved=profile?.windows.first(where: { $0.id == role }),
+               saved.displayID != display.id, stageUserDisplays[record.token] != display.id {
+                issues["stage-save:\(record.token)"]="没有手动跨屏证据，未更改已保存显示器";continue
+            }
             if role == nil,profile?.windows.contains(where:{matching.ambiguous.contains($0.id) && $0.identity.bundle == record.identity.bundle}) == true {
                 issues["stage-save:\(record.token)"]="窗口匹配有歧义，未覆盖记录";continue
             }

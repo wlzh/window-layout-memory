@@ -9,6 +9,7 @@ swift run WindowLayoutMemory --self-test-engine
 swift run WindowLayoutMemory --self-test-preview
 swift run WindowLayoutMemory --self-test-about
 ruby scripts/check-docs.rb
+ruby scripts/test-telegram-migration.rb
 ruby scripts/test-docs-check.rb
 git diff --check
 plutil -lint Resources/Info.plist

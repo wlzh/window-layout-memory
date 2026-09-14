@@ -75,6 +75,17 @@ test("changed title not guessed") {
     let w=window();let live=LiveWindow(token:"1",identity:WindowIdentity(bundle:identity.bundle,title:"Other"),frame:w.frame)
     try expect(Matcher.assign([w],[live]).missing.contains(w.id))
 }
+test("Telegram single role survives chat title changes without merging multiple windows") {
+    var saved=window();saved.identity=WindowIdentity(bundle:"org.telegram.desktop",title:"Chat A")
+    let live=LiveWindow(token:"fresh-session",identity:WindowIdentity(bundle:"org.telegram.desktop",title:"(71) Chat B"),frame:saved.frame)
+    try expect(Matcher.assign([saved],[live]).resolved[saved.id] == live.token)
+    let other=LiveWindow(token:"second",identity:live.identity,frame:live.frame)
+    try expect(Matcher.assign([saved],[live,other]).resolved.isEmpty)
+    var old=saved;old.id=UUID();old.identity.title="Chat C"
+    try expect(Matcher.assign([saved,old],[live]).resolved.isEmpty)
+    var document=live;document.identity.document="document"
+    try expect(Matcher.assign([saved],[document]).resolved.isEmpty)
+}
 test("same app title ambiguity blocks both saved roles") {
     let w=window(),v=window();let live=LiveWindow(token:"1",identity:identity,frame:w.frame)
     try expect(Matcher.assign([w,v],[live]).ambiguous.count==2)

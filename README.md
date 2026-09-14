@@ -1,16 +1,16 @@
 # Window Layout Memory
 
-当前更新：0.3.0-preview.19 / build 26。微信聊天记录例外统一为类型规则：匹配以“的聊天记录”结尾的非空对象标题及“搜索聊天记录”，按应用标识和标准窗口类型隔离，横竖屏共用。旧聊天记录精确标题例外读取时合并；图片、PDF和其它规则不变。微信主窗口不在此规则内。安装与实测状态见 [测试报告](docs/TESTING.md)。
+当前更新：0.3.0-preview.20 / build 27。修复Telegram Lite单窗口动态标题匹配；自动铺满没有手动跨屏证据时不覆盖已保存的显示器。旧的多条冲突记录需先备份并确认目标后合并。测试与安装状态见测试报告。
 
 Remember your workspace, separately for every display setup. Native Swift/AppKit, MIT, no third-party runtime dependencies.
 
 面向 macOS 的窗口布局记忆应用。目标是保留用户在单屏、双屏、多屏环境下分别调整好的窗口大小、位置与显示器归属，在显示器切换和重新登录后恢复，不让系统临时重排覆盖用户偏好。
 
-**v0.3.0-preview.19 / build 26：开发预览，不是稳定版。** 原生[关于窗口](docs/ABOUT.md)集中展示版本、作者、网站、GitHub、文档及MIT协议。包含[台前调度横屏自动铺满](docs/STAGE_FILL.md)：默认关闭，激活横屏前台窗口后避开菜单栏/Dock，左侧默认100 pt且可通过左边缘拖动调整。按完整显示器组合和显示器ID记忆留白，铺满成功后更新当前组合的窗口记录。[只读布局预览](docs/PREVIEW.md)关闭释放资源。尚未完整满足全部实机门禁。
+**v0.3.0-preview.20 / build 27：开发预览，不是稳定版。** 原生[关于窗口](docs/ABOUT.md)集中展示版本、作者、网站、GitHub、文档及MIT协议。包含[台前调度横屏自动铺满](docs/STAGE_FILL.md)：默认关闭，激活横屏前台窗口后避开菜单栏/Dock，左侧默认100 pt且可通过左边缘拖动调整。按完整显示器组合和显示器ID记忆留白，铺满成功后更新当前组合的窗口记录。[只读布局预览](docs/PREVIEW.md)关闭释放资源。尚未完整满足全部实机门禁。
 
 ![布局预览，合成测试数据，不是真实用户窗口](docs/assets/layout-preview.png)
 
-本版补齐正式应用图标及Finder打包配置，关于窗口共用图标，菜单栏保持单色。新增图标资源与打包门禁，详见[图标说明](docs/APP_ICON.md)。见[本版发行说明](docs/releases/v0.3.0-preview.19.md)。
+本版修复Telegram Lite动态标题匹配和自动铺满跨屏保存保护，见[专项说明](docs/TELEGRAM_IDENTITY.md)及[本版发行说明](docs/releases/v0.3.0-preview.20.md)。沿用正式应用图标和打包门禁，关于窗口共用图标，菜单栏保持单色。
 
 当前实现：前台普通窗口核对、候选保存、按显示器组合隔离基准、锁定、历史回退、保守匹配、可选恢复及一次核验、暂停、排除、私人备份和登录启动设置。自动移动默认关闭。
 

@@ -315,6 +315,9 @@ public struct MatchResult {
     public var resolved: [UUID:String] = [:], ambiguous: Set<UUID> = [], missing: Set<UUID> = []
 }
 public enum Matcher {
+    public static func usesApplicationWindow(_ bundle: String) -> Bool {
+        bundle == "org.telegram.desktop"
+    }
     public static func assign(_ saved: [SavedWindow], _ live: [LiveWindow], bindings: [UUID:String] = [:]) -> MatchResult {
         var proposals: [UUID:[String]] = [:]
         for s in saved {
@@ -327,7 +330,15 @@ public enum Matcher {
                 (!s.identity.identifier.isEmpty && $0.identity.identifier == s.identity.identifier)
             }
             let title = same.filter { !s.identity.title.isEmpty && $0.identity.title == s.identity.title }
-            // No singleton/titleless fallback: another same-app window may appear later.
+            // Telegram's main window title follows the selected chat and unread count.
+            // Only a single saved role and single observed window permit this fallback.
+            if usesApplicationWindow(s.identity.bundle),
+               saved.filter({ $0.identity.bundle == s.identity.bundle }).count == 1,
+               same.count == 1, s.identity.identifier.isEmpty, s.identity.document.isEmpty,
+               same[0].identity.identifier.isEmpty, same[0].identity.document.isEmpty {
+                proposals[s.id] = [same[0].token]; continue
+            }
+            // Other applications retain exact identity matching.
             proposals[s.id] = (!strong.isEmpty ? strong : title).map(\.token)
         }
         var claims: [String:Int] = [:]

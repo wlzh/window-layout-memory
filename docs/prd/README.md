@@ -4,6 +4,7 @@
 
 | 目标版本 | 状态 | 文档 | 发布状态 |
 | --- | --- | --- | --- |
+| v0.3.0-preview.20 | Telegram动态标题与显示器归属保护 | [PRD](v0.3.0-preview.20/prd.md)、[设计](v0.3.0-preview.20/design.md)、[技术](v0.3.0-preview.20/dev.md)、[计划](v0.3.0-preview.20/plan.md) | build 27，证据见总览 |
 | v0.3.0-preview.19 | 聊天记录类型规则及迁移 | [PRD](v0.3.0-preview.19/prd.md)、[设计](v0.3.0-preview.19/design.md)、[技术](v0.3.0-preview.19/dev.md)、[计划](v0.3.0-preview.19/plan.md) | build 26，证据见总览 |
 | v0.3.0-preview.18 | 正式应用图标与打包门禁 | [PRD](v0.3.0-preview.18/prd.md)、[设计](v0.3.0-preview.18/design.md)、[技术](v0.3.0-preview.18/dev.md)、[计划](v0.3.0-preview.18/plan.md) | build 25，证据见总览 |
 | v0.3.0-preview.17 | 文件类型例外、移除图片硬编码 | [PRD](v0.3.0-preview.17/prd.md)、[设计](v0.3.0-preview.17/design.md)、[技术](v0.3.0-preview.17/dev.md)、[计划](v0.3.0-preview.17/plan.md) | build 24，证据见总览 |

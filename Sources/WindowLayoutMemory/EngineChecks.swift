@@ -357,8 +357,8 @@ func runEngineChecks() -> Int32 {
             check(name,fake.record.frame == expected && fake.moves == 1)
             awaitCondition { !engine.busy }
             let changedProfile=engine.profile
-            if ambiguous || (destination.frame.width <= destination.frame.height && !db.preferences.stagePortraitFill) {
-                check("routing \(index) does not save ambiguous or disabled portrait fill",(try? store.load()) == db)
+            if ambiguous || index == 2 || (destination.frame.width <= destination.frame.height && !db.preferences.stagePortraitFill) {
+                check("routing \(index) preserves baseline without verified destination or user relocation",(try? store.load()) == db)
             } else {
                 check("routing \(index) records verified filled geometry",changedProfile?.windows.contains(where:{$0.frame == expected}) == true)
                 if index == 3 {
@@ -504,6 +504,23 @@ func runEngineChecks() -> Int32 {
         check("system stage off restores newly recorded filled baseline",fake.record.frame == child.profile?.windows.first?.frame)
         child.togglePause()
     } catch { failed+=1;print("FAIL ENGINE child policy: \(error)") }
+    do {
+        let destination=Display(id:"telegram-mi",name:"Mi",frame:Rect(1200,0,1600,1000))
+        topology=Topology([display,destination]);trusted=true;pointer=false
+        var telegramEnv=env;telegramEnv.stageManagerEnabled={ true };telegramEnv.stageDisplay={ $0 }
+        let telegramStore=LayoutStore(directory:root.appendingPathComponent("telegram-dynamic"))
+        let fake=FixtureService();fake.record.identity=WindowIdentity(bundle:"org.telegram.desktop",title:"new chat (71)")
+        var db=Database();db.preferences.stageFill=true;db.preferences.autoRestore=true
+        let saved=SavedWindow(identity:WindowIdentity(bundle:"org.telegram.desktop",title:"old chat"),displayID:destination.id,frame:Rect(1300,0,1500,1000),sourceVisible:destination.visible)
+        db.profiles=[Profile(name:"Telegram",topology:topology,windows:[saved])]
+        try telegramStore.save(db)
+        let telegram=Engine(service:fake,store:telegramStore,environment:telegramEnv)
+        awaitCondition { !telegram.busy && topology.owner(of:fake.record.frame)?.id == destination.id }
+        check("Telegram changed title restores saved monitor",topology.owner(of:fake.record.frame)?.id == destination.id)
+        fake.record.identity.title="another chat (99)";fake.emit();pump(3)
+        check("Telegram title changes keep one baseline",telegram.profile?.windows.count == 1 && telegram.profile?.windows.first?.displayID == destination.id)
+        telegram.togglePause()
+    } catch { failed+=1;print("FAIL ENGINE Telegram identity: \(error)") }
     do {
         topology=Topology([display]);trusted=true;pointer=false
         var titleEnv=env;titleEnv.stageManagerEnabled={ true };titleEnv.stageDisplay={ $0 }
