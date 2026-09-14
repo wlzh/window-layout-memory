@@ -8,6 +8,11 @@ BIN="$(swift build -c release --show-bin-path)"
 APP="$ROOT/dist/Window Layout Memory.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/WindowLayoutMemory" "$APP/Contents/MacOS/WindowLayoutMemory"
+strip -S "$APP/Contents/MacOS/WindowLayoutMemory"
+if rg -a -q '/Users/|/home/' "$APP/Contents/MacOS/WindowLayoutMemory"; then
+    echo 'Release binary contains a local user path' >&2
+    exit 1
+fi
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp LICENSE "$APP/Contents/Resources/LICENSE"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
