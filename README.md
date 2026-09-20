@@ -78,4 +78,6 @@ Latest published preview: **0.3.0-preview.19**, build 26. See [release assets](h
 
 Author: [X @wlzh](https://x.com/wlzh). Website: [869hr.uk](https://869hr.uk).
 
+项目介绍：[微信公众号文章](https://mp.weixin.qq.com/s/gUO9UpJqT2799oxviR0o_A) / [X 帖子](https://x.com/wlzh/status/2097172552103919916?s=20)。
+
 Copyright (c) 2026 wlzh. Licensed under the [MIT License](LICENSE).
