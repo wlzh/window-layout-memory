@@ -4,8 +4,8 @@ import LayoutCore
 
 enum AppVersion {
     static var marketing: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.3.0" }
-static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "27" }
-static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.20" }
+static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "28" }
+static var channel: String { Bundle.main.object(forInfoDictionaryKey:"WLMReleaseChannel") as? String ?? "preview.21" }
     static var label: String { "\(marketing)-\(channel) / build \(build)" }
 }
 

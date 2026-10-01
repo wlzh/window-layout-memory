@@ -20,6 +20,19 @@ let b=Display(id:"b",name:"Left",frame:Rect(-1200,-200,1200,1000))
 let c=Display(id:"c",name:"Portrait",frame:Rect(-2000,-200,800,1400),rotation:90)
 let one=Topology([a]),two=Topology([a,b]),three=Topology([a,b,c])
 let identity=WindowIdentity(bundle:"test.app",title:"Document")
+test("display transfer follows geometry not IDs and does not wrap") {
+    try expect(DisplayTransfer.destination(in:three,frame:Rect(10,10,300,200),direction:-1)?.id == "b")
+    try expect(DisplayTransfer.destination(in:three,frame:Rect(-1100,10,300,200),direction:-1)?.id == "c")
+    try expect(DisplayTransfer.destination(in:three,frame:Rect(-1100,10,300,200),direction:1)?.id == "a")
+    try expect(DisplayTransfer.destination(in:three,frame:Rect(10,10,300,200),direction:1) == nil)
+    try expect(DisplayTransfer.destination(in:one,frame:Rect(10,10,300,200),direction:-1) == nil)
+    try expect(DisplayTransfer.destination(in:three,frame:Rect(10,10,300,200),direction:0) == nil)
+}
+test("display transfer clamps size and retains relative placement") {
+    try expect(DisplayTransfer.target(frame:Rect(300,250,400,300),source:a.frame,destination:b.frame) == Rect(-800,150,400,300))
+    try expect(DisplayTransfer.target(frame:Rect(0,0,1000,800),source:a.frame,destination:Rect(0,0,600,700)) == Rect(0,0,600,700))
+    try expect(DisplayTransfer.target(frame:Rect(-50,-50,400,300),source:a.frame,destination:b.frame) == Rect(-1200,-200,400,300))
+}
 func window(_ identity:WindowIdentity=identity,frame:Rect=Rect(20,40,400,300)) -> SavedWindow {
     SavedWindow(identity:identity,displayID:"a",frame:frame,sourceVisible:a.visible)
 }

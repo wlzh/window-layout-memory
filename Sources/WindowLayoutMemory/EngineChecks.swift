@@ -430,7 +430,7 @@ func runEngineChecks() -> Int32 {
         let unified=find(menu,"铺满例外")?.submenu
         check("unified exceptions use native submenu without window action",find(menu,"铺满例外")?.action != NSSelectorFromString("showExceptions") && unified != nil)
         check("unified window action keeps target and payload",find(menu,"当前窗口暂不铺满")?.target === delegate && (find(menu,"当前窗口暂不铺满")?.representedObject as? String) == fake.record.token)
-        check("root has twelve entries and four functional groups",menu.items.filter { !$0.isSeparatorItem }.count == 12 && menu.items.filter { $0.submenu != nil }.map(\.title) == ["台前调度铺满","自动记忆与恢复","布局管理","设置与诊断"])
+        check("root has thirteen entries and five functional groups",menu.items.filter { !$0.isSeparatorItem }.count == 13 && menu.items.filter { $0.submenu != nil }.map(\.title) == ["移到其他显示器","台前调度铺满","自动记忆与恢复","布局管理","设置与诊断"])
         let routes:[(String,String,String)] = [
             ("台前调度铺满","横屏自动铺满","toggleStageFill"),
             ("台前调度铺满","竖屏保留左侧留白","toggleStagePortraitInset"),
@@ -643,6 +643,50 @@ func runEngineChecks() -> Int32 {
         excluded.togglePause();delegate.menuWillOpen(menu)
         check("paused root changes to resume without disabling restore preference",menu.items.first?.title.contains("已暂停") == true && find(menu,"继续自动操作")?.action == NSSelectorFromString("pause"))
     } catch { failed+=1;print("FAIL ENGINE application exclusions: \(error)") }
+    do {
+        let left=Display(id:"transfer-left",name:"Left",frame:Rect(-900,0,900,1200))
+        let transferTopology=Topology([display,left])
+        var front:pid_t?=424242,stageActive=false
+        var transferEnv=env
+        transferEnv.topology={ transferTopology };transferEnv.frontPID={ front }
+        transferEnv.stageManagerEnabled={ stageActive };transferEnv.stageDisplay={ $0 }
+        let adapter=FixtureService(),disk=LayoutStore(directory:root.appendingPathComponent("transfer"))
+        let transfer=Engine(service:adapter,store:disk,environment:transferEnv)
+        pump(3.3)
+        let original=adapter.record
+        check("transfer menu resolves geometric left",transfer.transferDestination(original,direction:-1)?.id == left.id)
+        transfer.transferWindow(original,direction:-1,topologyKey:"stale")
+        check("transfer rejects stale menu topology",adapter.moves == 0)
+        front=999
+        transfer.transferWindow(original,direction:-1,topologyKey:transferTopology.key)
+        check("transfer never moves a different foreground app",adapter.moves == 0)
+        front=424242
+        transfer.transferWindow(original,direction:-1,topologyKey:transferTopology.key)
+        awaitCondition { !transfer.busy }
+        check("transfer moves and explicitly saves without auto remember",adapter.moves == 1 && transfer.profile?.windows.first?.displayID == left.id)
+        check("transfer preserves ordinary size",adapter.record.frame.width == original.frame.width && adapter.record.frame.height == original.frame.height)
+        let reloaded=try disk.load()
+        check("transfer display ownership persists on disk",reloaded.profiles.first?.windows.first?.displayID == left.id)
+        let delegate=AppDelegate();delegate.engine=transfer
+        let menu=NSMenu();delegate.menuWillOpen(menu)
+        check("transfer arrows are grouped in enabled submenu",find(menu,"移到其他显示器")?.isEnabled == true && find(menu,"移到其他显示器")?.submenu?.items.count == 3)
+        transfer.setPreferences { $0.stageFill=true }
+        awaitCondition { !transfer.busy }
+        transfer.togglePause()
+        check("transfer disabled while paused",transfer.transferDestination(adapter.record,direction:1) == nil)
+        transfer.togglePause();pump(3.3)
+        stageActive=true
+        let before=transfer.profile?.windows.first
+        adapter.failFill=true
+        transfer.transferWindow(adapter.record,direction:1,topologyKey:transferTopology.key)
+        check("failed transfer fill does not overwrite ownership",transfer.profile?.windows.first == before && !transfer.busy)
+        adapter.failFill=false
+        transfer.transferWindow(adapter.record,direction:1,topologyKey:transferTopology.key)
+        awaitCondition { !transfer.busy }
+        check("transfer uses destination landscape fill",adapter.record.frame == Rect(100,0,1100,900) && transfer.profile?.windows.first?.displayID == display.id)
+        transfer.toggleLock();awaitCondition { !transfer.busy }
+        check("transfer disabled for locked layout",transfer.transferDestination(adapter.record,direction:-1) == nil)
+    } catch { failed+=1;print("FAIL ENGINE display transfer: \(error)") }
     print("ENGINE_TESTS passed=\(passed) failed=\(failed); injected adapter, not physical AX or Stage Manager validation")
     return failed == 0 ? 0:1
 }

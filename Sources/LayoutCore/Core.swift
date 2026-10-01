@@ -63,6 +63,30 @@ public struct Topology: Codable, Equatable {
     }
 }
 
+public enum DisplayTransfer {
+    public static func destination(in topology: Topology, frame: Rect, direction: Int) -> Display? {
+        guard topology.valid, [-1,1].contains(direction), let owner=topology.owner(of:frame) else { return nil }
+        let center=owner.frame.x+owner.frame.width/2
+        return topology.displays.filter {
+            (($0.frame.x+$0.frame.width/2)-center)*Double(direction) > 0
+        }.sorted {
+            let lhs=abs($0.frame.x+$0.frame.width/2-center)
+            let rhs=abs($1.frame.x+$1.frame.width/2-center)
+            if lhs != rhs { return lhs < rhs }
+            let ly=abs($0.frame.y+$0.frame.height/2-owner.frame.y-owner.frame.height/2)
+            let ry=abs($1.frame.y+$1.frame.height/2-owner.frame.y-owner.frame.height/2)
+            return ly == ry ? $0.id < $1.id : ly < ry
+        }.first
+    }
+    public static func target(frame: Rect, source: Rect, destination: Rect) -> Rect {
+        let width=min(frame.width,destination.width),height=min(frame.height,destination.height)
+        let x=(frame.x-source.x)/max(1,source.width-frame.width)
+        let y=(frame.y-source.y)/max(1,source.height-frame.height)
+        return Rect(destination.x+min(1,max(0,x))*(destination.width-width),
+                    destination.y+min(1,max(0,y))*(destination.height-height),width,height)
+    }
+}
+
 public struct WindowIdentity: Codable, Equatable {
     public var bundle: String, title: String, document: String, identifier: String
     public init(bundle: String, title: String = "", document: String = "", identifier: String = "") {

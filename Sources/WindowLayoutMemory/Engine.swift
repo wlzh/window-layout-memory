@@ -546,6 +546,70 @@ final class Engine {
         guard environment.trusted(),!guardState.settling,!guardState.paused else { return nil }
         return allRecords.first { $0.focused && $0.usable && $0.pid == environment.frontPID() }
     }
+    func transferDestination(_ record: AXRecord, direction: Int) -> Display? {
+        guard !busy,!storageFailed,profile?.locked != true,!moving.contains(record.token),
+              guardState.permits(guardState.generation,key:topology.key),environment.trusted(),
+              record.usable,record.focused,record.pid == environment.frontPID(),
+              !database.preferences.excludedBundles.contains(record.identity.bundle) else { return nil }
+        return DisplayTransfer.destination(in:topology,frame:record.frame,direction:direction)
+    }
+    func transferWindow(_ record: AXRecord, direction: Int, topologyKey: String) {
+        guard topology.key == topologyKey,environment.topology().key == topologyKey,
+              let destination=transferDestination(record,direction:direction),
+              let source=topology.owner(of:record.frame) else {
+            status="窗口或显示配置已变化，无法移屏";changed?();return
+        }
+        let matching=Matcher.assign(profile?.windows ?? [],allRecords.map(\.live),bindings:bindings)
+        let role=matching.resolved.first(where: { $0.value == record.token })?.key
+        guard role != nil || !(profile?.windows.contains { $0.identity.bundle == record.identity.bundle } ?? false) else {
+            status="窗口身份未唯一匹配，请先在布局管理中绑定窗口";changed?();return
+        }
+        let work=environment.stageDisplay(destination)
+        let ordinary=DisplayTransfer.target(frame:record.frame,source:source.visible,destination:work.visible)
+        let filled=stagePermits(record) ? stageTarget(destination,frame:ordinary) : nil
+        let target=filled ?? ordinary
+        let generation=guardState.generation,revision=profile?.revision
+        moving.insert(record.token);busy=true
+        suppressUntil[record.token]=environment.now()+3
+        learning.discard(record.token);gestureOrigins[record.token]=nil;candidates[record.token]=nil
+        let placement=filled == nil ? service.move : service.fill
+        placement(record,target,{ [weak self] in
+            guard let self else { return false }
+            return self.guardState.permits(generation,key:topologyKey) && self.environment.trusted() &&
+                self.environment.topology().key == topologyKey && self.environment.frontPID() == record.pid &&
+                !self.environment.pointerDown() && self.profile?.revision == revision && self.profile?.locked != true
+        }) { [weak self] actual,error in
+            guard let self else { return }
+            self.moving.remove(record.token);self.busy=false
+            guard self.guardState.permits(generation,key:topologyKey),self.environment.topology().key == topologyKey else {
+                self.status="移屏期间显示配置变化，未保存";self.changed?();return
+            }
+            guard error == nil,let actual,actual.close(to:target,tolerance:2) else {
+                self.status=error ?? "移屏未达到目标，未保存";self.changed?();return
+            }
+            if let index=self.records[record.pid]?.firstIndex(where: { $0.token == record.token }) {
+                self.records[record.pid]?[index].frame=actual
+            }
+            self.stageUserDisplays[record.token]=destination.id
+            self.stageAttempted.insert(record.token)
+            self.attempted.insert("\(generation):\(record.token)")
+            self.evidence[record.token]=nil
+            let saved=SavedWindow(id:role ?? UUID(),identity:record.identity,displayID:destination.id,frame:actual,sourceVisible:destination.visible)
+            var next=self.database
+            do {
+                if let profile=try CaptureMerge.updated(self.profile,topology:self.topology,windows:[saved]) {
+                    try next.replace(profile,expectedRevision:revision)
+                    self.persist(next,message:"已移至 \(destination.name)，并记住当前组合的位置") { success in
+                        if success { self.bindings[saved.id]=record.token }
+                    }
+                } else {
+                    self.bindings[saved.id]=record.token
+                    self.status="已移至 \(destination.name)，保存记录无需更新"
+                }
+            } catch { self.status="已移屏，但保存失败：\(error)" }
+            self.changed?()
+        }
+    }
     func stageRule(for record: AXRecord) -> StageWindowRule? {
         let rule=StageWindowRule(bundle:record.identity.bundle,identifier:record.identity.identifier,
                                  role:record.stageTraits.role,subrole:record.stageTraits.subrole)

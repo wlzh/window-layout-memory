@@ -9,6 +9,11 @@ struct ExceptionSection {
     let detail: String
     let menu: NSMenu
 }
+struct WindowTransferRequest {
+    let record: AXRecord
+    let direction: Int
+    let topologyKey: String
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var engine: Engine!
@@ -42,6 +47,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add(menu,"布局预览…",#selector(showPreview)).toolTip="查看当前、已保存及对比布局"
         add(menu,"保存已核对窗口（\(engine.candidates.count)）",#selector(save),enabled:!engine.busy && !engine.candidates.isEmpty).toolTip="将已核对候选保存为基准，不是完整桌面快照"
         add(menu,"恢复当前窗口",#selector(restore),enabled:engine.profile != nil && !engine.busy)
+        let transfers=NSMenu()
+        let transferRecord=engine.stageMenuRecord
+        add(transfers,transferRecord.map { "当前窗口：\($0.app)" } ?? "请先激活需要移动的窗口",nil)
+        for direction in [-1,1] {
+            let destination=transferRecord.flatMap { engine.transferDestination($0,direction:direction) }
+            let label=direction < 0 ? "← 左侧显示器":"→ 右侧显示器"
+            let entry=add(transfers,label+(destination.map { " · \($0.name)" } ?? ""),#selector(transferWindow(_:)),enabled:destination != nil)
+            if let record=transferRecord {
+                entry.representedObject=WindowTransferRequest(record:record,direction:direction,topologyKey:engine.topology.key)
+            }
+        }
+        let transferItem=add(menu,"移到其他显示器",nil)
+        transferItem.submenu=transfers;transferItem.isEnabled=true
         add(menu,"撤销最近恢复",#selector(undo),enabled:engine.canUndo)
         add(layouts,engine.profile?.locked == true ? "解锁当前布局":"锁定当前布局",#selector(lock),enabled:engine.profile != nil && !engine.busy)
         add(layouts,"重命名当前布局…",#selector(rename),enabled:engine.profile != nil && !engine.busy)
@@ -209,6 +227,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for entry in current.items { if let child=entry.submenu { configure(child) } }
         }
         configure(menu)
+    }
+    @objc func transferWindow(_ sender:NSMenuItem) {
+        guard let request=sender.representedObject as? WindowTransferRequest else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.engine.transferWindow(request.record,direction:request.direction,topologyKey:request.topologyKey)
+        }
     }
     @discardableResult func add(_ menu:NSMenu,_ title:String,_ action:Selector?,enabled:Bool=true,key:String="") -> NSMenuItem {
         let entry=NSMenuItem(title:title,action:action,keyEquivalent:key); entry.target=self
